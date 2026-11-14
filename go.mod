@@ -7,6 +7,7 @@ require (
 	github.com/lestrrat-go/jwx/v3 v3.0.13
 	github.com/pb33f/libopenapi v0.41.4
 	github.com/rest-sh/restish/v2 v2.3.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/zalando/go-keyring v0.2.6
@@ -71,7 +72,6 @@ require (
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sandrolain/httpcache v1.4.0 // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shamaton/msgpack/v3 v3.1.2 // indirect
 	github.com/tailscale/hujson v0.0.0-20260302212456-ecc657c15afd // indirect

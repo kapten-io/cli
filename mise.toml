@@ -17,6 +17,10 @@ description = "Write the agent skills for the docs site to publish: mise run doc
 usage = 'arg "<directory>" help="Where to write them, such as docs/product/skills in a kapten checkout"'
 run = 'go run ./cmd/kapten-docs -skills "${usage_directory}"'
 
+[tasks."skills:docs"]
+description = "Copy the kapten-docs skill docs.kapten.io publishes into skills/kapten-docs"
+run = "python3 scripts/skills-docs-sync"
+
 [tasks.test]
 description = "Run CLI tests"
 run = ["go test ./...", "python3 scripts/release_test.py"]

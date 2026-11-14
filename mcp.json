@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "kapten": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@kapten/cli@latest", "mcp", "serve"]
+    },
+    "kapten-docs": {
+      "type": "streamable-http",
+      "url": "https://docs.kapten.io/mcp"
+    }
+  }
+}
