@@ -21,19 +21,6 @@ import zipfile
 SCRIPTS = Path(__file__).resolve().parent
 TARGETS = [f"{os}_{arch}" for os in ("darwin", "linux", "windows") for arch in ("amd64", "arm64")]
 
-# Answers the quality gate lookup of release-tag with $GATE (default success).
-GH_STUB = r'''
-import json, os, pathlib, sys
-state = pathlib.Path(os.environ["RELEASE_FIXTURE"])
-with (state / "gh-calls").open("a") as log:
-    log.write(json.dumps(sys.argv[1:]) + "\n")
-if sys.argv[1] == "api" and "check-runs" in sys.argv[2]:
-    print(os.environ.get("GATE", "success"))
-else:
-    sys.exit("Unexpected gh invocation: " + repr(sys.argv[1:]))
-'''
-
-
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="kapten-release-test-")
@@ -50,10 +37,9 @@ class ReleaseTests(unittest.TestCase):
         stubs = self.base / "stubs"
         stubs.mkdir()
         self.env["PATH"] = str(stubs) + os.pathsep + os.environ["PATH"]
-        self.executable(stubs / "gh", GH_STUB)
         scripts = self.root / "scripts"
         scripts.mkdir(parents=True)
-        for name in ("release-common", "release-notes", "release-tag"):
+        for name in ("release-common", "release-next", "release-notes"):
             shutil.copy2(SCRIPTS / name, scripts / name)
         (self.root / ".gitignore").write_text("dist/\n")
         self.git("init", "-q", "--initial-branch=main")
@@ -89,95 +75,51 @@ class ReleaseTests(unittest.TestCase):
     def remote_tags(self):
         return self.git("--git-dir", str(self.state / "source.git"), "tag", "--list").split()
 
-    def test_tag_pushes_annotated_tag_of_main(self):
-        self.script("release-tag", "1.2.3")
-        self.assertEqual(self.remote_tags(), ["v1.2.3"])
-        tagged = self.git("--git-dir", str(self.state / "source.git"), "cat-file", "-t", "v1.2.3")
-        self.assertEqual(tagged, "tag")
-        head = self.git("rev-parse", "HEAD")
-        call = json.loads((self.state / "gh-calls").read_text().splitlines()[0])
-        self.assertIn(head, call[1])
+    def next_version(self, success=True):
+        return self.script("release-next", success=success)
 
-    def test_tag_requires_a_passed_quality_gate(self):
-        result = self.script("release-tag", "1.2.3", success=False, GATE="failure")
-        self.assertIn("quality gate", result.stderr)
-        self.assertEqual(self.remote_tags(), [])
+    def test_next_version_starts_at_0_1_0(self):
+        self.assertEqual(self.next_version().stdout.strip(), "0.1.0")
 
-    def test_tag_requires_main_head_and_a_clean_tree(self):
-        self.commit("feat: unpushed", push=False)
-        result = self.script("release-tag", "1.2.3", success=False)
-        self.assertIn("is not origin/main", result.stderr)
-        self.git("push", "-q", "origin", "main")
-        (self.root / ".gitignore").write_text("changed\n")
-        result = self.script("release-tag", "1.2.3", success=False)
-        self.assertIn("tracked changes", result.stderr)
-        self.assertEqual(self.remote_tags(), [])
-
-    def test_tag_must_be_new_and_newer(self):
-        self.script("release-tag", "1.2.3-rc.1")
-        self.commit("fix: next")
-        self.script("release-tag", "1.2.3")
-        self.commit("fix: after")
-        for version, message in (("1.2.3", "already exists"), ("1.2.2", "is not newer"),
-                                 ("1.2.3-rc.2", "is not newer"), ("01.2.3", "usage")):
-            with self.subTest(version=version):
-                result = self.script("release-tag", version, success=False)
-                self.assertIn(message, result.stderr)
-        self.assertEqual(sorted(self.remote_tags()), ["v1.2.3", "v1.2.3-rc.1"])
-
-    def test_tag_without_version_starts_at_0_1_0(self):
-        result = self.script("release-tag")
-        self.assertIn("Next version: v0.1.0", result.stdout)
-        self.assertEqual(self.remote_tags(), ["v0.1.0"])
-
-    def test_tag_without_version_follows_the_commit_titles(self):
-        self.script("release-tag", "0.1.0")
-        for commits, expected in ((["fix: a bug", "docs: a page"], "v0.1.1"),
-                                  (["feat(cli): a command", "fix: another bug"], "v0.2.0"),
-                                  (["feat!: a breaking change"], "v0.3.0"),
-                                  (["refactor: a cleanup\n\nBREAKING CHANGE: a flag is gone"], "v0.4.0")):
+    def test_next_version_follows_the_commit_titles(self):
+        self.git("tag", "v0.1.0")
+        for commits, expected in ((["fix: a bug", "docs: a page"], "0.1.1"),
+                                  (["feat(cli): a command", "fix: another bug"], "0.2.0"),
+                                  (["feat!: a breaking change"], "0.3.0"),
+                                  (["refactor: a cleanup\n\nBREAKING CHANGE: a flag is gone"], "0.4.0")):
             with self.subTest(expected=expected):
                 for message in commits:
-                    self.commit(message)
-                result = self.script("release-tag")
-                self.assertIn(f"Next version: {expected}", result.stdout)
-                self.assertIn(expected, self.remote_tags())
-        self.script("release-tag", "1.0.0")
-        self.commit("feat!: drop a command")
-        self.script("release-tag")
-        self.assertIn("v2.0.0", self.remote_tags())
+                    self.commit(message, push=False)
+                self.assertEqual(self.next_version().stdout.strip(), expected)
+                self.git("tag", "v" + expected)
+        self.git("tag", "v1.0.0")
+        self.commit("feat!: drop a command", push=False)
+        self.assertEqual(self.next_version().stdout.strip(), "2.0.0")
 
-    def test_tag_without_version_skips_prereleases_and_needs_a_change(self):
-        self.script("release-tag", "0.1.0")
-        self.commit("feat: a command")
-        self.script("release-tag", "0.2.0-rc.1")
-        self.commit("ci: a job")
-        result = self.script("release-tag")
-        self.assertIn("Next version: v0.2.0", result.stdout)
-        self.commit("docs: a page")
-        self.commit("test: a case")
-        result = self.script("release-tag", success=False)
+    def test_next_version_ignores_prereleases_and_needs_a_change(self):
+        self.git("tag", "v0.1.0-rc.1")
+        self.commit("ci: a job", push=False)
+        self.assertEqual(self.next_version().stdout.strip(), "0.1.0")
+        self.git("tag", "v0.1.0")
+        self.commit("docs: a page", push=False)
+        self.commit("test: a case", push=False)
+        result = self.next_version(success=False)
         self.assertIn("nothing to release", result.stderr)
 
-    def test_notes_list_commits_since_the_previous_release(self):
+    def test_notes_list_commits_since_the_latest_release(self):
         self.git("tag", "-a", "v1.0.0", "-m", "v1.0.0")
-        self.commit("feat: first change")
+        self.commit("feat: first change", push=False)
         self.git("tag", "-a", "v1.1.0-rc.1", "-m", "rc")
-        self.commit("fix: second change")
-        self.git("tag", "-a", "v1.1.0-rc.2", "-m", "rc")
-        self.commit("docs: third change")
-        self.git("tag", "-a", "v1.1.0", "-m", "v1.1.0")
+        self.commit("fix: second change", push=False)
         notes = self.script("release-notes", "v1.1.0").stdout
-        self.assertIn("- docs: third change\n- fix: second change\n- feat: first change\n", notes)
+        self.assertIn("- fix: second change\n- feat: first change\n", notes)
         self.assertNotIn("CLI fixture", notes)
         self.assertIn("compare/v1.0.0...v1.1.0", notes)
-        rc = self.script("release-notes", "v1.1.0-rc.2").stdout
-        self.assertEqual(rc.count("\n- "), 1)
-        self.assertIn("- fix: second change", rc)
-        self.assertIn("compare/v1.1.0-rc.1...v1.1.0-rc.2", rc)
+        self.git("tag", "-d", "v1.0.0")
         first = self.script("release-notes", "v1.0.0").stdout
         self.assertIn("- feat: CLI fixture", first)
         self.assertNotIn("compare", first)
+        self.script("release-notes", "1.x", success=False)
 
     def test_newer_orders_prereleases_before_their_release(self):
         cases = (("1.2.3", "1.2.3-rc.1", True), ("1.2.3-rc.10", "1.2.3-rc.2", True),

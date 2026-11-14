@@ -34,6 +34,19 @@ sys.exit(0 if key(sys.argv[1]) > key(sys.argv[2]) else 1)
 PY
 }
 
+# The latest release tag reachable from HEAD (vX.Y.Z, prereleases aside), or
+# nothing before the first release.
+release_latest() {
+  local candidate
+  while IFS= read -r candidate; do
+    [[ "$candidate" == *-* ]] && continue
+    release_version "$candidate" >/dev/null || continue
+    git merge-base --is-ancestor "$candidate" HEAD || continue
+    printf '%s\n' "$candidate"
+    return
+  done < <(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname)
+}
+
 # The version that follows stable version $1 (empty for none yet) given the
 # commits on stdin, one "subject<TAB>body" record per NUL: a breaking change
 # ("type!:" or a "BREAKING CHANGE:" footer) bumps the major version (the minor

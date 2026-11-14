@@ -387,31 +387,19 @@ backend behavior, multi-page aggregation, or production OAuth interoperability.
 ## Releases
 
 Releases are SemVer versions, tagged `vX.Y.Z` on `main`. To release, run the
-[Release a version](https://github.com/kapten-io/cli/actions/workflows/release-tag.yml)
-workflow on `main` ("Run workflow" in the Actions tab), with an empty version
-for the next one or a given version. It tags `main`'s head once its quality
-gate passed and starts the Release workflow on the tag.
-
-The same from a terminal, on an up-to-date `main`:
-
-```bash
-mise run release                 # the next version, from the commit titles
-mise run release -- 0.2.0-rc.1   # or a given version, such as a prerelease
-```
-
-Without a version, the task picks the next one from the commit titles since
-the latest release: a breaking change (`feat!:`, or a `BREAKING CHANGE:`
-footer) bumps the major version (the minor one before 1.0.0), `feat:` the
-minor version, and any other commit but `ci:`, `docs:`, `test:` and `style:`
-the patch version. It lists the commits and asks before tagging. The task
-checks the version is newer than the latest tag, then pushes an annotated
-tag. The tag starts the Release workflow
-(`.github/workflows/release.yml`), on GitHub's runners:
+[Release](https://github.com/kapten-io/cli/actions/workflows/release.yml)
+workflow on `main`: "Run workflow" in the Actions tab. It releases `main`'s
+head as the next version, picked from the commit titles since the latest
+release (`scripts/release-next`): a breaking change (`feat!:`, or a
+`BREAKING CHANGE:` footer) bumps the major version (the minor one before
+1.0.0), `feat:` the minor version, and any other commit but `ci:`, `docs:`,
+`test:` and `style:` the patch version. With only those, it fails: there is
+nothing to release. The workflow runs on GitHub's runners:
 
 1. **Build**: runs the quality gate again, cross-compiles `kapten` and the
    Restish MCP helper pinned in `go.mod` for darwin, linux and windows on amd64
    and arm64 (`scripts/release-build`), writes an SPDX SBOM per archive with
-   Syft and `checksums.txt`, and the notes: the commits since the previous
+   Syft and `checksums.txt`, and the notes: the commits since the latest
    release (`scripts/release-notes`).
 2. **Sign**: [packslip](https://packslip.dev) describes the archives (digests,
    platforms, the `kapten` executable, shell completions) in
@@ -419,15 +407,15 @@ tag. The tag starts the Release workflow
    attests each archive's build provenance. It runs without write access to
    the release.
 3. **Publish**: creates the GitHub release as a draft, uploads the files and
-   the signed manifest and publishes it; a SemVer prerelease becomes a GitHub
-   prerelease. A rerun replaces a draft's files.
+   the signed manifest and publishes it, which creates the tag on the released
+   commit. A rerun replaces a draft's files.
 4. **npm**: publishes `@kapten/cli-<os>-<cpu>` for each platform, holding both
    executables from the release's archives (checked against `checksums.txt`),
    then `@kapten/cli`, a launcher (`npm/bin/kapten.js`, no install script)
    that depends on them optionally, so npm installs only the matching one
    (`scripts/release-npm`). It runs in the `npm` environment, which only
-   release tags can use, with npm trusted publishing: no token, and npm
-   records the provenance. Prereleases are published under the `next` tag.
+   `main` can use, with npm trusted publishing: no token, and npm records the
+   provenance.
 5. **Verify**: checks the published archive against `checksums.txt` and its
    provenance, then runs the release installed with mise, which verifies the
    manifest, and with npx (`mise run release:verify -- vX.Y.Z`).
