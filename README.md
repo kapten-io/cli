@@ -19,6 +19,14 @@ the shell completions of the version in use:
 mise use -g packslip:github.com/kapten-io/cli
 ```
 
+With npm, or without installing it, for MCP clients and CI jobs that have
+Node.js:
+
+```bash
+npm install -g @kapten/cli
+npx -y @kapten/cli@<version> mcp serve
+```
+
 Or download the archive for your platform from
 [Releases](https://github.com/kapten-io/cli/releases), check it against
 `checksums.txt` and its provenance
@@ -336,9 +344,16 @@ annotated tag. The tag starts the Release workflow
 3. **Publish**: creates the GitHub release as a draft, uploads the files and
    the signed manifest and publishes it; a SemVer prerelease becomes a GitHub
    prerelease. A rerun replaces a draft's files.
-4. **Verify**: checks the published archive against `checksums.txt` and its
-   provenance, then installs the release with mise, which verifies the
-   manifest (`mise run release:verify -- vX.Y.Z`).
+4. **npm**: publishes `@kapten/cli-<os>-<cpu>` for each platform, holding both
+   executables from the release's archives (checked against `checksums.txt`),
+   then `@kapten/cli`, a launcher (`npm/bin/kapten.js`, no install script)
+   that depends on them optionally, so npm installs only the matching one
+   (`scripts/release-npm`). It runs in the `npm` environment, which only
+   release tags can use, with npm trusted publishing: no token, and npm
+   records the provenance. Prereleases are published under the `next` tag.
+5. **Verify**: checks the published archive against `checksums.txt` and its
+   provenance, then runs the release installed with mise, which verifies the
+   manifest, and with npx (`mise run release:verify -- vX.Y.Z`).
 
 mise accepts a release only when a workflow of this repository signed it, and
 remembers the workflow file: sign every release from `release.yml`.

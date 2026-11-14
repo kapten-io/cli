@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Write the npm packages of a release from its archives: one package per
+# platform holding kapten and restish-mcp, and @kapten/cli, a launcher that
+# depends on them optionally so npm installs only the matching one.
+set -euo pipefail
+
+usage() {
+  echo "usage: release-npm vX.Y.Z[-prerelease] DIST OUTPUT" >&2
+  exit 2
+}
+
+source "$(dirname "$0")/release-common"
+[[ $# -eq 3 ]] || usage
+version="$(release_version "$1")" || usage
+dist="$2"
+output="$3"
+cli="$(cd "$(dirname "$0")/.." && pwd)"
+
+for command in python3 tar; do
+  command -v "$command" >/dev/null || {
+    echo "release-npm: required command not found: $command" >&2
+    exit 1
+  }
+done
+
+rm -rf "$output"
+mkdir -p "$output"
+platforms=()
+while IFS= read -r target; do
+  os="${target%/*}"
+  arch="${target#*/}"
+  case "$os" in windows) node_os=win32 ;; *) node_os="$os" ;; esac
+  case "$arch" in amd64) node_cpu=x64 ;; *) node_cpu="$arch" ;; esac
+  extension=tar.gz
+  suffix=""
+  if [[ "$os" == windows ]]; then
+    extension=zip
+    suffix=.exe
+  fi
+  archive="kapten_${version}_${os}_${arch}.$extension"
+
+  # Only archives that match the release's checksums are packed.
+  expected="$(release_checksum "$dist/checksums.txt" "$archive")"
+  actual="$(release_sha256 "$dist/$archive")"
+  [[ "$expected" == "$actual" ]] || {
+    echo "release-npm: $archive does not match checksums.txt" >&2
+    exit 1
+  }
+
+  package="$output/cli-$node_os-$node_cpu"
+  mkdir -p "$package/bin"
+  if [[ "$extension" == zip ]]; then
+    python3 -m zipfile -e "$dist/$archive" "$package/bin"
+  else
+    tar -xzf "$dist/$archive" -C "$package/bin"
+  fi
+  mv "$package/bin/README.md" "$package/README.md"
+  chmod 0755 "$package/bin/kapten$suffix" "$package/bin/restish-mcp$suffix"
+  platforms+=("$node_os-$node_cpu")
+  python3 - "$package/package.json" "$version" "$node_os" "$node_cpu" <<'PY'
+import json, sys
+path, version, os_, cpu = sys.argv[1:]
+manifest = {
+    "name": f"@kapten/cli-{os_}-{cpu}",
+    "version": version,
+    "description": f"The Kapten CLI for {os_} on {cpu}; install @kapten/cli instead",
+    "homepage": "https://docs.kapten.io/cli",
+    "repository": {"type": "git", "url": "git+https://github.com/kapten-io/cli.git"},
+    "license": "Apache-2.0",
+    "os": [os_],
+    "cpu": [cpu],
+    "files": ["bin/"],
+    "preferUnplugged": True,
+}
+with open(path, "w") as output:
+    json.dump(manifest, output, indent=2)
+    output.write("\n")
+PY
+done < <(release_targets)
+
+launcher="$output/cli"
+mkdir -p "$launcher/bin"
+cp "$cli/npm/bin/kapten.js" "$launcher/bin/kapten.js"
+cp "$cli/README.md" "$launcher/README.md"
+python3 - "$launcher/package.json" "$version" "${platforms[@]}" <<'PY'
+import json, sys
+path, version, *platforms = sys.argv[1:]
+manifest = {
+    "name": "@kapten/cli",
+    "version": version,
+    "description": "Manage Kapten from your terminal, CI jobs and coding agents",
+    "homepage": "https://docs.kapten.io/cli",
+    "repository": {"type": "git", "url": "git+https://github.com/kapten-io/cli.git"},
+    "license": "Apache-2.0",
+    "bin": {"kapten": "bin/kapten.js"},
+    "files": ["bin/"],
+    "engines": {"node": ">=18"},
+    "optionalDependencies": {f"@kapten/cli-{platform}": version for platform in platforms},
+}
+with open(path, "w") as output:
+    json.dump(manifest, output, indent=2)
+    output.write("\n")
+PY
+echo "npm packages of $version are in $output"
