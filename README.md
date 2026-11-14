@@ -11,20 +11,19 @@ With Homebrew, on macOS and Linux:
 brew install --cask kapten-io/tap/kapten
 ```
 
-With mise, from this repository's Aqua registry definition:
+With [mise](https://mise.jdx.dev), which checks the release's signed
+[packslip](https://packslip.dev) manifest before installing it, and installs
+the shell completions of the version in use:
 
-```toml
-[settings]
-aqua.registries = ["https://github.com/kapten-io/cli"]
-
-[tools]
-"aqua:kapten-io/cli" = "latest"
+```bash
+mise use -g packslip:github.com/kapten-io/cli
 ```
 
 Or download the archive for your platform from
 [Releases](https://github.com/kapten-io/cli/releases), check it against
-`checksums.txt`, and put both executables, `kapten` and `restish-mcp`, in the
-same directory on your `PATH`.
+`checksums.txt` and its provenance
+(`gh attestation verify <archive> --repo kapten-io/cli`), and put both
+executables, `kapten` and `restish-mcp`, in the same directory on your `PATH`.
 
 ## How it works
 
@@ -329,11 +328,20 @@ annotated tag. The tag starts the Release workflow
    and arm64 (`scripts/release-build`), writes an SPDX SBOM per archive with
    Syft and `checksums.txt`, and the notes: the commits since the previous
    release (`scripts/release-notes`).
-2. **Publish**: creates the GitHub release as a draft, uploads the files and
-   publishes it; a SemVer prerelease becomes a GitHub prerelease. A rerun
-   replaces a draft's files.
-3. **Verify**: downloads the published archive and checks it as a user would
-   (`mise run release:verify -- vX.Y.Z`).
+2. **Sign**: [packslip](https://packslip.dev) describes the archives (digests,
+   platforms, the `kapten` executable, shell completions) in
+   `packslip.sigstore.json`, signed keyless by this workflow's identity, and
+   attests each archive's build provenance. It runs without write access to
+   the release.
+3. **Publish**: creates the GitHub release as a draft, uploads the files and
+   the signed manifest and publishes it; a SemVer prerelease becomes a GitHub
+   prerelease. A rerun replaces a draft's files.
+4. **Verify**: checks the published archive against `checksums.txt` and its
+   provenance, then installs the release with mise, which verifies the
+   manifest (`mise run release:verify -- vX.Y.Z`).
+
+mise accepts a release only when a workflow of this repository signed it, and
+remembers the workflow file: sign every release from `release.yml`.
 
 Each archive holds both executables and this README; Windows archives are ZIPs
 with `.exe` files.

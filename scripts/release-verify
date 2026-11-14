@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Download a published release's archive for this machine, check it against
-# checksums.txt and run the binary.
+# Check a published release as users get it: the archive for this machine
+# against checksums.txt and its build provenance, then an install with mise,
+# which verifies the packslip signature and digests.
 set -euo pipefail
 
 usage() {
@@ -12,6 +13,13 @@ source "$(dirname "$0")/release-common"
 [[ $# -eq 1 ]] || usage
 version="$(release_version "$1")" || usage
 tag="v$version"
+
+for command in curl gh mise tar; do
+  command -v "$command" >/dev/null || {
+    echo "release-verify: required command not found: $command" >&2
+    exit 1
+  }
+done
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$(uname -m)" in
@@ -44,4 +52,14 @@ reported="$("$work/kapten" --version)"
   echo "release-verify: $archive has no restish-mcp" >&2
   exit 1
 }
-echo "Verified $archive: $reported"
+gh attestation verify "$work/$archive" --repo kapten-io/cli >/dev/null
+echo "Verified $archive and its provenance: $reported"
+
+# A fresh mise data directory, so nothing installed or trusted earlier counts
+export MISE_DATA_DIR="$work/mise" MISE_CACHE_DIR="$work/mise-cache"
+installed="$(mise exec "packslip:github.com/kapten-io/cli@$version" -- kapten --version)"
+[[ "$installed" == "$reported" ]] || {
+  echo "release-verify: mise installed '$installed', not '$reported'" >&2
+  exit 1
+}
+echo "Installed with mise (packslip): $installed"
