@@ -1,0 +1,14 @@
+{
+  "name": "kapten",
+  "owner": {
+    "name": "Kapten",
+    "url": "https://kapten.io"
+  },
+  "plugins": [
+    {
+      "name": "kapten",
+      "source": "./",
+      "description": "Operate Kapten from coding agents: skills, the Kapten MCP server and the docs MCP server."
+    }
+  ]
+}

@@ -271,6 +271,34 @@ another CLI version. The `kapten` server runs this executable by its absolute
 path (or `npx -y @kapten/cli@<version>` when it runs from npx), with
 `--context` when one is given: `kapten --context work skills install --mcp`.
 
+## Agent plugin
+
+This repository is also a plugin for coding agents, with the `kapten` and
+`kapten-docs` skills and two MCP servers: `kapten` (run with
+`npx -y @kapten/cli@latest mcp serve`, so it needs Node.js and a login made
+with `kapten login` or the server-mode variables) and `kapten-docs`
+(`https://docs.kapten.io/mcp`).
+
+```bash
+# Claude Code
+/plugin marketplace add kapten-io/cli
+/plugin install kapten@kapten
+
+# Codex, Cursor and other Agent Plugins clients: install from this
+# repository; the Codex marketplace is .agents/plugins/marketplace.json
+
+# Skills only, for any agent (npx skills)
+npx skills add kapten-io/cli
+```
+
+The root `plugin.json` and `mcp.json` follow
+[Agent Plugins 1.0](https://agent-plugins.org); `.claude-plugin/` holds
+Claude Code's manifest and marketplace. `skills/plugin_test.go` checks them
+against the Agent Plugins schemas and against each other.
+`skills/kapten-docs` is a copy of the skill docs.kapten.io generates:
+`mise run skills:docs` updates it, and a weekly workflow fails when it is out
+of date.
+
 ## Agent skill
 
 `skills/kapten/` is an [Agent Skill](https://agentskills.io) that teaches

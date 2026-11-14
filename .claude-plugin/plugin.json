@@ -1,0 +1,22 @@
+{
+  "name": "kapten",
+  "description": "Operate Kapten from coding agents: the kapten and kapten-docs skills, the Kapten MCP server (kapten mcp serve) and the docs MCP server.",
+  "author": {
+    "name": "Kapten",
+    "url": "https://kapten.io"
+  },
+  "homepage": "https://docs.kapten.io/cli/mcp",
+  "repository": "https://github.com/kapten-io/cli",
+  "license": "Apache-2.0",
+  "keywords": ["kapten", "kubernetes", "deployment", "paas", "mcp"],
+  "mcpServers": {
+    "kapten": {
+      "command": "npx",
+      "args": ["-y", "@kapten/cli@latest", "mcp", "serve"]
+    },
+    "kapten-docs": {
+      "type": "http",
+      "url": "https://docs.kapten.io/mcp"
+    }
+  }
+}
