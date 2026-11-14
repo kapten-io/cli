@@ -169,7 +169,8 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/release-npm "$TAG" dist npm-packages
-          for package in npm-packages/cli-* npm-packages/cli; do
+          # ./ makes npm read a folder, not a GitHub user/repo shorthand
+          for package in ./npm-packages/cli-* ./npm-packages/cli; do
             name="$(jq -r .name "$package/package.json")"
             version="$(jq -r .version "$package/package.json")"
             if npm view "$name@$version" version >/dev/null 2>&1; then
