@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Tag main's head as a release and push the tag: the Release workflow builds
+# and publishes it.
+set -euo pipefail
+
+usage() {
+  echo "usage: mise run release -- X.Y.Z[-prerelease]" >&2
+  exit 2
+}
+
+source "$(dirname "$0")/release-common"
+[[ $# -eq 1 ]] || usage
+version="$(release_version "$1")" || usage
+tag="v$version"
+
+for command in gh git python3; do
+  command -v "$command" >/dev/null || {
+    echo "release-tag: required command not found: $command" >&2
+    exit 1
+  }
+done
+
+git fetch --quiet --tags origin main
+head="$(git rev-parse HEAD)"
+main="$(git rev-parse FETCH_HEAD)"
+if [[ "$head" != "$main" ]]; then
+  echo "release-tag: HEAD ($head) is not origin/main ($main); check out main and pull" >&2
+  exit 1
+fi
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "release-tag: commit or stash the tracked changes first" >&2
+  exit 1
+fi
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+  echo "release-tag: $tag already exists" >&2
+  exit 1
+fi
+latest="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1)"
+if [[ -n "$latest" ]] && ! release_newer "$version" "${latest#v}"; then
+  echo "release-tag: $tag is not newer than $latest" >&2
+  exit 1
+fi
+
+# Only a commit whose quality gate passed is released.
+conclusion="$(gh api "repos/kapten-io/cli/commits/$head/check-runs?check_name=Quality%20gate" \
+  --jq '[.check_runs[] | select(.app.slug == "github-actions")][0].conclusion // "missing"')"
+if [[ "$conclusion" != success ]]; then
+  echo "release-tag: the quality gate of $head is $conclusion, not success" >&2
+  exit 1
+fi
+
+git tag -a "$tag" -m "Kapten CLI $tag" "$head"
+git push --quiet origin "refs/tags/$tag"
+echo "Pushed $tag: https://github.com/kapten-io/cli/actions/workflows/release.yml"

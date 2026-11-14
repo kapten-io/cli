@@ -94,5 +94,4 @@ done
   done < <(release_assets "$version")
 )
 
-"$cli/scripts/release-cask" "v$version" "$dist/Casks/kapten.rb"
 echo "Release artifacts are in $dist"

@@ -1,4 +1,5 @@
-"""Offline release regression tests: real Git/cask logic, synthetic build/GitHub.
+"""Offline release regression tests: real Git and packaging logic, synthetic
+Go, Syft and GitHub.
 
 Run with: python3 scripts/release_test.py
 No credentials, network access, Go compiler, or Syft are used.
@@ -19,77 +20,16 @@ import zipfile
 SCRIPTS = Path(__file__).resolve().parent
 TARGETS = [f"{os}_{arch}" for os in ("darwin", "linux", "windows") for arch in ("amd64", "arm64")]
 
+# Answers the quality gate lookup of release-tag with $GATE (default success).
 GH_STUB = r'''
-import json, os, pathlib, shutil, subprocess, sys
-args = sys.argv[1:]
+import json, os, pathlib, sys
 state = pathlib.Path(os.environ["RELEASE_FIXTURE"])
-def option(name):
-    return args[args.index(name) + 1]
-def run(*args):
-    return subprocess.check_output(args, text=True).strip()
-with (state / "calls").open("a") as log:
-    log.write(json.dumps(args) + "\n")
-if args[:2] in (["auth", "status"], ["repo", "view"]):
-    pass
-elif args[:2] == ["repo", "clone"]:
-    subprocess.check_call(["git", "clone", "--quiet", str(state / "tap.git"), args[3]])
-elif args[0] == "api":
-    print(run("git", "--git-dir", str(state / "tap.git"), "show", "HEAD:Casks/kapten.rb"))
-elif args[:2] == ["release", "view"]:
-    if not (state / "release.json").exists():
-        sys.exit(1)
-    data = json.loads((state / "release.json").read_text())
-    data["assets"] = [{"name": p.name} for p in sorted((state / "assets").iterdir())]
-    if "--jq" in args:
-        print("\n".join(a["name"] for a in data["assets"]))
-    else:
-        print(json.dumps(data))
-elif args[:2] == ["release", "create"]:
-    data = {"isDraft": True, "isPrerelease": "--prerelease" in args,
-            "body": pathlib.Path(option("--notes-file")).read_text().rstrip("\n"),
-            "url": "https://example.invalid/release"}
-    (state / "release.json").write_text(json.dumps(data))
-elif args[:2] == ["release", "upload"]:
-    shutil.copyfile(args[3], state / "assets" / pathlib.Path(args[3]).name)
-elif args[:2] == ["release", "edit"]:
-    data = json.loads((state / "release.json").read_text())
-    data["isDraft"] = False
-    (state / "release.json").write_text(json.dumps(data))
-elif args[:2] == ["release", "download"]:
-    destination = pathlib.Path(option("--dir"))
-    for asset in (state / "assets").iterdir():
-        shutil.copyfile(asset, destination / asset.name)
-        if os.environ.get("CORRUPT_DOWNLOAD") == asset.name:
-            with (destination / asset.name).open("ab") as output:
-                output.write(b"corruption")
+with (state / "gh-calls").open("a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\n")
+if sys.argv[1] == "api" and "check-runs" in sys.argv[2]:
+    print(os.environ.get("GATE", "success"))
 else:
-    sys.exit("Unexpected gh invocation: " + repr(args))
-'''
-
-BUILD_STUB = r'''
-import hashlib, os, pathlib, shutil, subprocess, sys
-root = pathlib.Path.cwd()
-state = pathlib.Path(os.environ["RELEASE_FIXTURE"])
-if os.environ.get("FAIL_BUILD") == "1":
-    sys.exit("build must not run for a published release")
-counter = state / "build-count"
-count = int(counter.read_text()) + 1 if counter.exists() else 1
-counter.write_text(str(count))
-dist = root / "dist"
-shutil.rmtree(dist, ignore_errors=True)
-dist.mkdir()
-version = sys.argv[1][1:]
-checksums = []
-for platform in ("darwin", "linux", "windows"):
-    for arch in ("amd64", "arm64"):
-        extension = "zip" if platform == "windows" else "tar.gz"
-        name = f"kapten_{version}_{platform}_{arch}.{extension}"
-        for artifact in (name, name + ".sbom.json"):
-            data = f"{artifact}: build {count}".encode()
-            (dist / artifact).write_bytes(data)
-            checksums.append(f"{hashlib.sha256(data).hexdigest()}  {artifact}\n")
-(dist / "checksums.txt").write_text("".join(checksums))
-subprocess.check_call([str(root / "scripts/release-cask"), sys.argv[1], str(dist / "Casks/kapten.rb")])
+    sys.exit("Unexpected gh invocation: " + repr(sys.argv[1:]))
 '''
 
 
@@ -102,7 +42,6 @@ class ReleaseTests(unittest.TestCase):
         self.root.mkdir()
         self.state = self.base / "state"
         self.state.mkdir()
-        (self.state / "assets").mkdir()
         self.env = dict(os.environ, RELEASE_FIXTURE=str(self.state),
                         GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
                         GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
@@ -113,22 +52,15 @@ class ReleaseTests(unittest.TestCase):
         self.executable(stubs / "gh", GH_STUB)
         scripts = self.root / "scripts"
         scripts.mkdir(parents=True)
-        for name in ("release-publish", "release-cask", "release-common"):
+        for name in ("release-common", "release-notes", "release-tag"):
             shutil.copy2(SCRIPTS / name, scripts / name)
-        self.executable(scripts / "release-build", BUILD_STUB)
         (self.root / ".gitignore").write_text("dist/\n")
         self.git("init", "-q", "--initial-branch=main")
         self.git("add", ".")
-        self.git("commit", "-qm", "CLI fixture")
+        self.git("commit", "-qm", "feat: CLI fixture")
         self.git("init", "-q", "--bare", str(self.state / "source.git"))
         self.git("remote", "add", "origin", str(self.state / "source.git"))
-        tap = self.base / "tap"
-        tap.mkdir()
-        self.git("init", "-q", "--initial-branch=main", cwd=tap)
-        (tap / "README.md").write_text("Fixture tap\n")
-        self.git("add", ".", cwd=tap)
-        self.git("commit", "-qm", "Initial tap", cwd=tap)
-        self.git("clone", "-q", "--bare", str(tap), str(self.state / "tap.git"))
+        self.git("push", "-q", "origin", "main")
 
     def executable(self, path, body):
         path.write_text(f"#!{sys.executable}\n" + body)
@@ -138,80 +70,89 @@ class ReleaseTests(unittest.TestCase):
         return subprocess.check_output(["git", *args], cwd=cwd or self.root,
                                        env=self.env, text=True, stderr=subprocess.PIPE).strip()
 
-    def publish(self, success=True, **environment):
-        result = subprocess.run([str(self.root / "scripts/release-publish"), "v1.2.3"],
-                                cwd=self.root, env=dict(self.env, **environment),
-                                text=True, capture_output=True, timeout=30)
+    def commit(self, message, push=True):
+        self.git("commit", "-q", "--allow-empty", "-m", message)
+        if push:
+            self.git("push", "-q", "origin", "main")
+
+    def script(self, name, *args, success=True, **environment):
+        result = subprocess.run([str(self.root / "scripts" / name), *args], cwd=self.root,
+                                env=dict(self.env, **environment), text=True,
+                                capture_output=True, timeout=30)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 
-    def tap_cask(self):
-        return self.git("--git-dir", str(self.state / "tap.git"), "show", "HEAD:Casks/kapten.rb")
+    def remote_tags(self):
+        return self.git("--git-dir", str(self.state / "source.git"), "tag", "--list").split()
 
-    def calls(self):
-        return [json.loads(line) for line in (self.state / "calls").read_text().splitlines()]
+    def test_tag_pushes_annotated_tag_of_main(self):
+        self.script("release-tag", "1.2.3")
+        self.assertEqual(self.remote_tags(), ["v1.2.3"])
+        tagged = self.git("--git-dir", str(self.state / "source.git"), "cat-file", "-t", "v1.2.3")
+        self.assertEqual(tagged, "tag")
+        head = self.git("rev-parse", "HEAD")
+        call = json.loads((self.state / "gh-calls").read_text().splitlines()[0])
+        self.assertIn(head, call[1])
 
-    def test_first_publication_commits_new_cask(self):
-        self.publish()
-        self.assertIn('version "1.2.3"', self.tap_cask())
-        self.assertIn('  binary "kapten"', self.tap_cask())
-        self.assertIn('  binary "restish-mcp"', self.tap_cask())
-        self.assertFalse(json.loads((self.state / "release.json").read_text())["isDraft"])
-        checksums = (self.state / "assets/checksums.txt").read_text()
-        for target in TARGETS[:4]:
-            name = f"kapten_1.2.3_{target}.tar.gz"
-            digest = hashlib.sha256((self.state / "assets" / name).read_bytes()).hexdigest()
-            self.assertIn(digest, checksums)
-            self.assertIn(digest, self.tap_cask())
+    def test_tag_requires_a_passed_quality_gate(self):
+        result = self.script("release-tag", "1.2.3", success=False, GATE="failure")
+        self.assertIn("quality gate", result.stderr)
+        self.assertEqual(self.remote_tags(), [])
 
-    def test_retry_keeps_published_checksums_and_does_not_commit_again(self):
-        self.publish()
-        original_cask = self.tap_cask()
-        original_tap_head = self.git("--git-dir", str(self.state / "tap.git"), "rev-parse", "HEAD")
-        upload_count = sum(call[:2] == ["release", "upload"] for call in self.calls())
-        shutil.rmtree(self.root / "dist")
-        self.publish(FAIL_BUILD="1")
-        self.assertEqual(original_cask, self.tap_cask())
-        self.assertEqual(original_tap_head, self.git("--git-dir", str(self.state / "tap.git"), "rev-parse", "HEAD"))
-        self.assertEqual(upload_count, sum(call[:2] == ["release", "upload"] for call in self.calls()))
-        self.assertEqual((self.state / "build-count").read_text(), "1")
-        self.assertFalse((self.root / "dist").exists())
+    def test_tag_requires_main_head_and_a_clean_tree(self):
+        self.commit("feat: unpushed", push=False)
+        result = self.script("release-tag", "1.2.3", success=False)
+        self.assertIn("is not origin/main", result.stderr)
+        self.git("push", "-q", "origin", "main")
+        (self.root / ".gitignore").write_text("changed\n")
+        result = self.script("release-tag", "1.2.3", success=False)
+        self.assertIn("tracked changes", result.stderr)
+        self.assertEqual(self.remote_tags(), [])
 
-    def test_retry_recovers_from_failed_tap_push(self):
-        marker = self.state / "reject-once"
-        marker.touch()
-        hook = self.state / "tap.git/hooks/pre-receive"
-        self.executable(hook, f"import pathlib, sys\np = pathlib.Path({str(marker)!r})\n"
-                        "if p.exists():\n    p.unlink()\n    sys.exit(1)\n")
-        self.publish(success=False)
-        self.assertFalse(json.loads((self.state / "release.json").read_text())["isDraft"])
-        self.publish(FAIL_BUILD="1")
-        name = "kapten_1.2.3_darwin_arm64.tar.gz"
-        self.assertIn(hashlib.sha256((self.state / "assets" / name).read_bytes()).hexdigest(), self.tap_cask())
+    def test_tag_must_be_new_and_newer(self):
+        self.script("release-tag", "1.2.3-rc.1")
+        self.commit("fix: next")
+        self.script("release-tag", "1.2.3")
+        self.commit("fix: after")
+        for version, message in (("1.2.3", "already exists"), ("1.2.2", "is not newer"),
+                                 ("1.2.3-rc.2", "is not newer"), ("01.2.3", "usage")):
+            with self.subTest(version=version):
+                result = self.script("release-tag", version, success=False)
+                self.assertIn(message, result.stderr)
+        self.assertEqual(sorted(self.remote_tags()), ["v1.2.3", "v1.2.3-rc.1"])
 
-    def test_draft_retry_rebuilds_and_replaces_assets(self):
-        self.publish()
-        first = (self.state / "assets/checksums.txt").read_bytes()
-        data = json.loads((self.state / "release.json").read_text())
-        data["isDraft"] = True
-        (self.state / "release.json").write_text(json.dumps(data))
-        self.publish()
-        self.assertEqual((self.state / "build-count").read_text(), "2")
-        self.assertNotEqual(first, (self.state / "assets/checksums.txt").read_bytes())
-        self.assertFalse(json.loads((self.state / "release.json").read_text())["isDraft"])
-        name = "kapten_1.2.3_darwin_arm64.tar.gz"
-        self.assertIn(hashlib.sha256((self.state / "assets" / name).read_bytes()).hexdigest(), self.tap_cask())
+    def test_notes_list_commits_since_the_previous_release(self):
+        self.git("tag", "-a", "v1.0.0", "-m", "v1.0.0")
+        self.commit("feat: first change")
+        self.git("tag", "-a", "v1.1.0-rc.1", "-m", "rc")
+        self.commit("fix: second change")
+        self.git("tag", "-a", "v1.1.0-rc.2", "-m", "rc")
+        self.commit("docs: third change")
+        self.git("tag", "-a", "v1.1.0", "-m", "v1.1.0")
+        notes = self.script("release-notes", "v1.1.0").stdout
+        self.assertIn("- docs: third change\n- fix: second change\n- feat: first change\n", notes)
+        self.assertNotIn("CLI fixture", notes)
+        self.assertIn("compare/v1.0.0...v1.1.0", notes)
+        rc = self.script("release-notes", "v1.1.0-rc.2").stdout
+        self.assertEqual(rc.count("\n- "), 1)
+        self.assertIn("- fix: second change", rc)
+        self.assertIn("compare/v1.1.0-rc.1...v1.1.0-rc.2", rc)
+        first = self.script("release-notes", "v1.0.0").stdout
+        self.assertIn("- feat: CLI fixture", first)
+        self.assertNotIn("compare", first)
 
-    def test_missing_published_asset_does_not_update_tap(self):
-        self.publish()
-        original = self.tap_cask()
-        (self.state / "assets/kapten_1.2.3_windows_arm64.zip").unlink()
-        result = self.publish(success=False, FAIL_BUILD="1")
-        self.assertIn("published release is missing", result.stderr)
-        self.assertEqual(original, self.tap_cask())
+    def test_newer_orders_prereleases_before_their_release(self):
+        cases = (("1.2.3", "1.2.3-rc.1", True), ("1.2.3-rc.10", "1.2.3-rc.2", True),
+                 ("1.2.3-rc.1", "1.2.3", False), ("1.2.3", "1.2.3", False), ("1.10.0", "1.9.9", True))
+        for newer, older, expected in cases:
+            with self.subTest(newer=newer, older=older):
+                result = subprocess.run(["bash", "-c", 'source "$1"; release_newer "$2" "$3"',
+                                         "fixture", str(SCRIPTS / "release-common"), newer, older],
+                                        env=self.env)
+                self.assertEqual(result.returncode == 0, expected)
 
     def test_real_packaging_uses_shared_asset_manifest(self):
         stubs = self.base / "stubs"
@@ -239,9 +180,6 @@ class ReleaseTests(unittest.TestCase):
         for name in names:
             if name != "checksums.txt":
                 self.assertEqual(checksums[name], hashlib.sha256((dist / name).read_bytes()).hexdigest())
-        cask = (dist / "Casks/kapten.rb").read_text()
-        self.assertIn('  binary "kapten"', cask)
-        self.assertIn('  binary "restish-mcp"', cask)
         calls = [json.loads(line) for line in (self.state / "go-calls").read_text().splitlines()]
         self.assertEqual(len(calls), 12)
         for target in TARGETS:
@@ -299,32 +237,18 @@ class ReleaseTests(unittest.TestCase):
                                     env=self.env, text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0, version)
 
-    def test_corrupt_published_download_does_not_update_tap(self):
-        self.publish()
-        original = self.tap_cask()
-        result = self.publish(success=False, CORRUPT_DOWNLOAD="kapten_1.2.3_darwin_arm64.tar.gz")
-        self.assertIn("published checksum is missing, invalid, or mismatched", result.stderr)
-        self.assertEqual(original, self.tap_cask())
-
     def test_missing_or_duplicate_checksum_is_rejected(self):
-        self.publish()
-        original = self.tap_cask()
-        checksums = self.state / "assets/checksums.txt"
-        content = checksums.read_text()
         name = "kapten_1.2.3_darwin_arm64.tar.gz"
-        line = next(line for line in content.splitlines(keepends=True) if line.rstrip().endswith(name))
-        for invalid in (content.replace(line, ""), content + line):
-            with self.subTest(checksums=invalid):
-                checksums.write_text(invalid)
-                self.publish(success=False)
-                self.assertEqual(original, self.tap_cask())
-                output = self.base / "invalid/Casks/kapten.rb"
-                output.parent.parent.mkdir(exist_ok=True)
-                (output.parent.parent / "checksums.txt").write_text(invalid)
-                result = subprocess.run([str(SCRIPTS / "release-cask"), "v1.2.3", str(output)],
+        line = f"{'a' * 64}  {name}\n"
+        checksums = self.base / "checksums.txt"
+        for content, valid in ((line, True), ("", False), (line + line, False),
+                               (f"{'a' * 63}  {name}\n", False)):
+            with self.subTest(content=content):
+                checksums.write_text(content)
+                result = subprocess.run(["bash", "-c", 'source "$1"; release_checksum "$2" "$3"',
+                                         "fixture", str(SCRIPTS / "release-common"), str(checksums), name],
                                         env=self.env, capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(output.exists())
+                self.assertEqual(result.returncode == 0, valid, result.stderr)
 
 
 if __name__ == "__main__":

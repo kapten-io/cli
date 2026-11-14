@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Download a published release's archive for this machine, check it against
+# checksums.txt and run the binary.
+set -euo pipefail
+
+usage() {
+  echo "usage: mise run release:verify -- vX.Y.Z[-prerelease]" >&2
+  exit 2
+}
+
+source "$(dirname "$0")/release-common"
+[[ $# -eq 1 ]] || usage
+version="$(release_version "$1")" || usage
+tag="v$version"
+
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$(uname -m)" in
+  x86_64 | amd64) arch=amd64 ;;
+  arm64 | aarch64) arch=arm64 ;;
+  *) echo "release-verify: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+archive="kapten_${version}_${os}_${arch}.tar.gz"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+base="https://github.com/kapten-io/cli/releases/download/$tag"
+curl -fsSL --retry 3 -o "$work/$archive" "$base/$archive"
+curl -fsSL --retry 3 -o "$work/checksums.txt" "$base/checksums.txt"
+
+expected="$(release_checksum "$work/checksums.txt" "$archive")"
+actual="$(release_sha256 "$work/$archive")"
+[[ "$expected" == "$actual" ]] || {
+  echo "release-verify: $archive does not match checksums.txt" >&2
+  exit 1
+}
+
+tar -xzf "$work/$archive" -C "$work"
+reported="$("$work/kapten" --version)"
+[[ "$reported" == *"$version"* ]] || {
+  echo "release-verify: kapten --version printed '$reported', not $version" >&2
+  exit 1
+}
+[[ -x "$work/restish-mcp" ]] || {
+  echo "release-verify: $archive has no restish-mcp" >&2
+  exit 1
+}
+echo "Verified $archive: $reported"
