@@ -6,7 +6,7 @@
     "url": "https://kapten.io"
   },
   "homepage": "https://docs.kapten.io/cli/mcp",
-  "repository": "https://github.com/kapten-io/cli",
+  "repository": "https://github.com/kapten-io/skills",
   "license": "Apache-2.0",
   "keywords": ["kapten", "kubernetes", "deployment", "paas", "mcp"],
   "mcpServers": {

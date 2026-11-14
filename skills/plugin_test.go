@@ -11,10 +11,11 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// The repository root is a plugin: Agent Plugins 1.0 (plugin.json, mcp.json,
-// skills/) for Codex, Cursor and other clients of the standard, and
-// .claude-plugin/ for Claude Code. These tests keep the manifests valid and
-// in step with each other.
+// plugin/ and the kapten skill make the agent plugin each release publishes
+// to kapten-io/skills (scripts/release-plugin): Agent Plugins 1.0
+// (plugin.json, mcp.json, skills/) for Codex, Cursor and other clients of the
+// standard, and .claude-plugin/ for Claude Code. These tests keep the
+// manifests valid and in step with each other.
 
 func readJSON(t *testing.T, path string) any {
 	t.Helper()
@@ -34,8 +35,8 @@ func TestAgentPluginManifestsMatchTheirSchemas(t *testing.T) {
 	// The Agent Plugins 1.0.0 schemas, copied into testdata: clients must not
 	// fetch them, and neither does this test.
 	for manifest, schema := range map[string]string{
-		"../plugin.json": "testdata/plugin.schema.json",
-		"../mcp.json":    "testdata/mcp.schema.json",
+		"../plugin/plugin.json": "testdata/plugin.schema.json",
+		"../plugin/mcp.json":    "testdata/mcp.schema.json",
 	} {
 		compiler := jsonschema.NewCompiler()
 		doc := readJSON(t, schema)
@@ -89,9 +90,9 @@ func TestEveryClientGetsTheSamePlugin(t *testing.T) {
 	type mcp struct {
 		MCPServers map[string]map[string]any `json:"mcpServers"`
 	}
-	agentPlugin := decodeFile[portable](t, "../plugin.json")
-	agentMCP := decodeFile[mcp](t, "../mcp.json")
-	claude := decodeFile[claudePlugin](t, "../.claude-plugin/plugin.json")
+	agentPlugin := decodeFile[portable](t, "../plugin/plugin.json")
+	agentMCP := decodeFile[mcp](t, "../plugin/mcp.json")
+	claude := decodeFile[claudePlugin](t, "../plugin/.claude-plugin/plugin.json")
 
 	if claude.Name != agentPlugin.Name || claude.Description != agentPlugin.Description {
 		t.Errorf("Claude Code's manifest names %q (%q), plugin.json %q (%q)", claude.Name, claude.Description, agentPlugin.Name, agentPlugin.Description)
@@ -122,15 +123,17 @@ func TestEveryClientGetsTheSamePlugin(t *testing.T) {
 		t.Errorf("kapten-docs server: %v", docs)
 	}
 
-	// Each skill in skills/ is one of the plugin's skills.
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The plugin's skills: kapten from skills/, kapten-docs from plugin/skills/.
 	var skillDirs []string
-	for _, entry := range entries {
-		if _, err := os.Stat(filepath.Join(entry.Name(), "SKILL.md")); entry.IsDir() && err == nil {
-			skillDirs = append(skillDirs, entry.Name())
+	for _, dir := range []string{".", "../plugin/skills"} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if _, err := os.Stat(filepath.Join(dir, entry.Name(), "SKILL.md")); entry.IsDir() && err == nil {
+				skillDirs = append(skillDirs, entry.Name())
+			}
 		}
 	}
 	if !reflect.DeepEqual(skillDirs, []string{"kapten", "kapten-docs"}) {
@@ -146,7 +149,7 @@ func TestMarketplacesListThePlugin(t *testing.T) {
 			Source string `json:"source"`
 		} `json:"plugins"`
 	}
-	claude := decodeFile[claudeMarketplace](t, "../.claude-plugin/marketplace.json")
+	claude := decodeFile[claudeMarketplace](t, "../plugin/.claude-plugin/marketplace.json")
 	if claude.Name != "kapten" || len(claude.Plugins) != 1 || claude.Plugins[0].Name != "kapten" || claude.Plugins[0].Source != "./" {
 		t.Errorf("Claude Code marketplace: %+v", claude)
 	}
@@ -163,7 +166,7 @@ func TestMarketplacesListThePlugin(t *testing.T) {
 			} `json:"policy"`
 		} `json:"plugins"`
 	}
-	codex := decodeFile[codexMarketplace](t, "../.agents/plugins/marketplace.json")
+	codex := decodeFile[codexMarketplace](t, "../plugin/.agents/plugins/marketplace.json")
 	if codex.Name != "kapten" || len(codex.Plugins) != 1 {
 		t.Fatalf("Codex marketplace: %+v", codex)
 	}

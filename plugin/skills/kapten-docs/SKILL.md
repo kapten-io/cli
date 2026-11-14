@@ -58,3 +58,27 @@ This skill points you at the Kapten Docs, at https://docs.kapten.io/. When a tas
 ### API
 
 - [API overview](https://docs.kapten.io/api.md): Call the Kapten Platform and Auth APIs from scripts and CI with an OAuth application's access token.
+
+### CLI
+
+- [CLI overview](https://docs.kapten.io/cli.md): Install the kapten command-line tool and manage projects, environments and deployments from a terminal, CI jobs and coding agents.
+- [Authentication](https://docs.kapten.io/cli/authentication.md): Log in to Kapten from the CLI, switch between organizations with saved contexts, and authenticate CI jobs as an OAuth application.
+- [Output and errors](https://docs.kapten.io/cli/output.md): Read kapten results as tables or JSON, filter them for scripts, and handle errors and exit codes.
+- [Request bodies](https://docs.kapten.io/cli/request-bodies.md): Pass the fields of a resource to create or update commands, as shorthand arguments or as JSON on stdin.
+- [Coding agents](https://docs.kapten.io/cli/mcp.md): Set up a coding agent such as Claude Code, Codex or Cursor to manage Kapten, with the Kapten agent skill and the CLI's local MCP server.
+
+#### Command reference
+
+- [Command reference](https://docs.kapten.io/cli/reference.md): Every kapten command, its arguments and its flags.
+- [kapten auth](https://docs.kapten.io/cli/reference/auth.md): Log in, check who commands run as, and switch between saved logins (contexts).
+- [kapten applications](https://docs.kapten.io/cli/reference/applications.md): Deploy and run long-running applications.
+- [kapten clusters](https://docs.kapten.io/cli/reference/clusters.md): Connect and manage Kubernetes clusters.
+- [kapten components](https://docs.kapten.io/cli/reference/components.md): List the components of an environment.
+- [kapten databases](https://docs.kapten.io/cli/reference/databases.md): Create and manage databases.
+- [kapten environments](https://docs.kapten.io/cli/reference/environments.md): Create and manage the environments of a project.
+- [kapten jobs](https://docs.kapten.io/cli/reference/jobs.md): Run and schedule jobs.
+- [kapten pipelines](https://docs.kapten.io/cli/reference/pipelines.md): Build and run deployment pipelines.
+- [kapten projects](https://docs.kapten.io/cli/reference/projects.md): Create and manage projects.
+- [kapten usage](https://docs.kapten.io/cli/reference/usage.md): Show environment usage for billing.
+- [kapten mcp](https://docs.kapten.io/cli/reference/mcp.md): Serve Kapten operations as MCP tools to a coding agent, over stdio.
+- [kapten skills](https://docs.kapten.io/cli/reference/skills.md): Install the Kapten agent skill and MCP servers for coding agents.

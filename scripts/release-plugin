@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Publish the agent plugin of the CLI release vX.Y.Z to kapten-io/skills, the
+# repository agents install it from: plugin/ and the kapten skill of this
+# commit, stamped with the version, become its main branch's whole content,
+# committed and tagged vX.Y.Z.
+#
+#   release-plugin vX.Y.Z
+#
+# GH_TOKEN may push to kapten-io/skills. With DRY_RUN=1 it pushes nothing and
+# prints the commit instead; SKILLS_REMOTE may then replace the repository URL
+# with a local copy.
+set -euo pipefail
+
+source "$(dirname "$0")/release-common"
+usage() {
+  echo "usage: release-plugin vX.Y.Z" >&2
+  exit 2
+}
+[[ $# -eq 1 ]] || usage
+version="$(release_version "$1")" || usage
+tag="v$version"
+: "${DRY_RUN:=}"
+[[ -n "$DRY_RUN" ]] || : "${GH_TOKEN:?GH_TOKEN must be set}"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+git clone --quiet \
+  ${GH_TOKEN:+--config "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"} \
+  "${SKILLS_REMOTE:-https://github.com/kapten-io/skills.git}" "$work/skills"
+cd "$work/skills"
+if git rev-parse --quiet --verify refs/remotes/origin/main >/dev/null; then
+  git checkout --quiet -B main origin/main
+else
+  git checkout --quiet --orphan main
+fi
+if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+  echo "kapten-io/skills already has $tag"
+  exit 0
+fi
+
+# The release's plugin replaces everything, so a file it drops goes too
+find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+cp -R "$root/plugin/." .
+cp -R "$root/skills/kapten" skills/kapten
+cp "$root/LICENSE" .
+for manifest in plugin.json .claude-plugin/plugin.json; do
+  jq --arg v "$version" '.version = $v' "$manifest" >"$manifest.new"
+  mv "$manifest.new" "$manifest"
+done
+
+git add -A
+git -c user.name="kapten-release[bot]" -c user.email="kapten-release[bot]@users.noreply.github.com" \
+  commit --quiet --allow-empty -m "kapten $tag" \
+  -m "Release notes: https://github.com/kapten-io/cli/releases/tag/$tag"
+git tag "$tag"
+if [[ -n "$DRY_RUN" ]]; then
+  git show --stat HEAD
+  exit 0
+fi
+git push --quiet --atomic origin main "refs/tags/$tag"
+echo "Published the plugin $tag to https://github.com/kapten-io/skills"

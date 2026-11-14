@@ -219,6 +219,35 @@ jobs:
           TAG: ${{ needs.build.outputs.tag }}
         run: ./scripts/release-docs-pr "$TAG" | tee -a "$GITHUB_STEP_SUMMARY"
 
+  plugin:
+    name: Agent plugin
+    needs: [build, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          # GitHub accepts the App ID wherever it takes the client ID
+          client-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: kapten-io
+          repositories: skills
+          permission-contents: write
+
+      - name: Publish to kapten-io/skills
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: ./scripts/release-plugin "$TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+
   verify:
     name: Verify
     needs: [build, publish, npm]
