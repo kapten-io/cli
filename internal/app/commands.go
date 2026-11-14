@@ -12,8 +12,8 @@ import (
 )
 
 type kaptenOptions struct {
-	Context       string
-	Help, Version bool
+	Context                string
+	Help, Version, Staging bool
 }
 
 // Restish has no public AddCommand hook. Consume Kapten's context/version
@@ -25,6 +25,7 @@ func parseKaptenArgs(args []string) (kaptenOptions, []string, error) {
 	flags.StringVar(&opts.Context, "context", "", "Kapten context")
 	flags.BoolVarP(&opts.Help, "help", "h", false, "Show help")
 	flags.BoolVar(&opts.Version, "version", false, "Show version")
+	flags.BoolVar(&opts.Staging, "staging", false, "Use Kapten's staging")
 	owned, rest := []string{}, []string{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -40,7 +41,7 @@ func parseKaptenArgs(args []string) (kaptenOptions, []string, error) {
 			i++
 		} else if strings.HasPrefix(arg, "--context=") {
 			owned = append(owned, arg)
-		} else if arg == "--version" || strings.HasPrefix(arg, "--version=") {
+		} else if arg == "--version" || strings.HasPrefix(arg, "--version=") || arg == "--staging" || strings.HasPrefix(arg, "--staging=") {
 			owned = append(owned, arg)
 		} else if arg == "--help" || strings.HasPrefix(arg, "--help=") || arg == "-h" || strings.HasPrefix(arg, "-h=") {
 			owned = append(owned, arg)

@@ -31,6 +31,9 @@ func (a *App) login(ctx context.Context, opts loginOptions) error {
 		return errors.New("KAPTEN_CLIENT_ID is set: commands authenticate as that OAuth application; unset it to log in")
 	}
 	name, noBrowser := opts.name, opts.noBrowser
+	if name == "" && a.staging {
+		name = stagingContext
+	}
 	issuer := strings.TrimRight(first(opts.issuerURL, env("KAPTEN_ISSUER_URL", defaultIssuerURL)), "/")
 	api, err := apiURL(first(opts.apiURL, env("KAPTEN_API_URL", defaultAPIURL)))
 	if err != nil {
