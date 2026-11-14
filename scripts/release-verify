@@ -14,7 +14,7 @@ source "$(dirname "$0")/release-common"
 version="$(release_version "$1")" || usage
 tag="v$version"
 
-for command in curl gh mise npx tar; do
+for command in curl gh mise npm npx tar; do
   command -v "$command" >/dev/null || {
     echo "release-verify: required command not found: $command" >&2
     exit 1
@@ -63,6 +63,19 @@ installed="$(mise exec "packslip:github.com/kapten-io/cli@$version" -- kapten --
   exit 1
 }
 echo "Installed with mise (packslip): $installed"
+
+# npm takes a few minutes to serve a new version: wait up to 15 minutes for
+# the launcher and every platform package
+for name in cli cli-darwin-arm64 cli-darwin-x64 cli-linux-arm64 cli-linux-x64 cli-win32-arm64 cli-win32-x64; do
+  for attempt in $(seq 30); do
+    npm view "@kapten/$name@$version" version >/dev/null 2>&1 && break
+    [[ $attempt -lt 30 ]] || {
+      echo "release-verify: npm does not serve @kapten/$name@$version after 15 minutes" >&2
+      exit 1
+    }
+    sleep 30
+  done
+done
 
 # npm resolves @kapten/cli's platform package for this machine
 from_npm="$(cd "$work" && npm_config_cache="$work/npm-cache" npx --yes "@kapten/cli@$version" --version)"
