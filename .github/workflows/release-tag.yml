@@ -1,0 +1,56 @@
+name: Release a version
+
+# "Run workflow" in the Actions tab tags main's head with the next version
+# (from the commit titles since the latest release, see scripts/release-tag)
+# or the version given, then starts the Release workflow on that tag. A tag
+# pushed with the workflow token starts no workflow by itself, so this one
+# dispatches it.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, such as 0.3.0 or 0.3.0-rc.1 (empty for the next one from the commit titles)
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the tag
+      checks: read # the quality gate of main's head
+      actions: write # start the Release workflow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the next version comes from the commits since the latest tag
+
+      - name: Tag main
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ./scripts/release-tag ${VERSION:+"$VERSION"}
+          tag="$(git tag --points-at HEAD --list 'v*' --sort=-v:refname | head -n 1)"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+
+      - name: Start the Release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "Release $TAG: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/release.yml" >>"$GITHUB_STEP_SUMMARY"
