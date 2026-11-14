@@ -246,6 +246,16 @@ data, including logs, and can modify or delete resources. Configure client
 approval policies appropriately or use `--operations` to expose only the tools
 needed for a session.
 
+## Agent skill
+
+`skills/kapten/` is an [Agent Skill](https://agentskills.io) that teaches
+coding agents to operate Kapten through this CLI and `kapten mcp serve`. It
+ships with the CLI, at the CLI's version: embedded in the binary, declared in
+each release's packslip manifest (mise links it with
+`mise skills sync --dir .agents/skills`), and published on docs.kapten.io.
+`mise run quality` checks it against the binary: see
+[skills/README.md](skills/README.md).
+
 ## Documentation
 
 The command reference on [docs.kapten.io](https://docs.kapten.io/cli/reference)
@@ -257,6 +267,9 @@ runs it at the CLI version it documents:
 go run github.com/kapten-io/cli/cmd/kapten-docs@<version> <directory>
 mise run docs -- <directory>   # from this checkout
 ```
+
+`kapten-docs -skills <directory>` (`mise run docs:skills -- <directory>`)
+writes the agent skills, for the docs site to publish.
 
 ## Tests
 
