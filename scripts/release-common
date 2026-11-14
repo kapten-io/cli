@@ -17,6 +17,23 @@ release_version() {
   printf '%s\n' "$version"
 }
 
+# Whether SemVer version $1 sorts after $2 (prereleases before their release).
+release_newer() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+def key(version):
+    core, _, pre = version.partition("-")
+    parts = [int(part) for part in core.split(".")]
+    if not pre:
+        return parts, (1,)
+    identifiers = [(0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")]
+    return parts, (0, identifiers)
+
+sys.exit(0 if key(sys.argv[1]) > key(sys.argv[2]) else 1)
+PY
+}
+
 release_targets() {
   printf '%s\n' darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 }

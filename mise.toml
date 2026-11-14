@@ -32,7 +32,7 @@ description = "Regenerate and verify the CLI"
 run = [
   "go test ./...",
   "go vet ./...",
-  "bash -n scripts/release-common scripts/release-build scripts/release-cask scripts/release-publish",
+  "bash -n scripts/release-common scripts/release-build scripts/release-notes scripts/release-tag scripts/release-verify",
   "python3 scripts/release_test.py",
 ]
 
@@ -41,7 +41,12 @@ description = "Build local release archives without publishing"
 depends = ["quality"]
 run = "./scripts/release-build v0.0.0-snapshot"
 
-[tasks."release:publish"]
-description = "Tag, build, and publish a CLI release from this machine"
-depends = ["quality"]
-run = "./scripts/release-publish"
+[tasks.release]
+description = "Tag main as a release, which the Release workflow publishes: mise run release -- X.Y.Z"
+usage = 'arg "<version>" help="SemVer version, such as 0.2.0 or 0.2.0-rc.1"'
+run = './scripts/release-tag "${usage_version}"'
+
+[tasks."release:verify"]
+description = "Download a published release for this machine and check it: mise run release:verify -- vX.Y.Z"
+usage = 'arg "<tag>" help="Release tag, such as v0.2.0"'
+run = './scripts/release-verify "${usage_tag}"'

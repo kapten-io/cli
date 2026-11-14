@@ -302,8 +302,8 @@ subset enforcement and context selection, and check 401-triggered OAuth refresh.
 request guards, helper cancellation/reaping, and stdio isolation also have
 coverage. They use fake credentials and temporary configuration/cache
 directories, never a logged-in developer profile. Packaging regression tests use
-synthetic Go outputs but inspect real tar/ZIP archives for both executables and
-verify that the cask installs both; they do not publish releases.
+synthetic Go outputs but inspect real tar/ZIP archives for both executables;
+they do not publish releases.
 
 All Kapten/Restish test configuration/cache directories are temporary, including
 macOS HOME isolation. No real browser, keychain, credentials, or deployed API is used.
@@ -313,43 +313,38 @@ backend behavior, multi-page aggregation, or production OAuth interoperability.
 
 ## Releases
 
-CLI releases are currently published entirely from a maintainer's machine.
-The publish task runs quality checks, creates and pushes a tag named
-`v<major>.<minor>.<patch>`, cross-compiles the CLI and its pinned Restish MCP
-helper with standard Go tools, generates SBOMs with Syft, publishes the release
-using `gh`, and updates the `kapten-io/homebrew-tap` cask. Release notes list
-the commits since the previous tag. SemVer prerelease versions become GitHub
-prereleases.
-When retrying an already-published version (for example after a failed tap
-push), the task skips rebuilding and published assets are not replaced: it
-downloads and verifies their checksums and generates the cask from those
-published bytes. New and draft releases still build all targets.
+Releases are SemVer versions, tagged `vX.Y.Z` on `main`. To release, from an
+up-to-date `main` whose quality gate passed:
 
 ```bash
-mise run release:publish -- v0.1.0-rc.1
+mise run release -- 0.2.0        # or 0.2.0-rc.1 for a prerelease
 ```
 
-The task requires authenticated `gh` access to this repository and the tap, Go,
-Python 3 for Windows ZIP archives, `tar`, and the mise-managed Syft version. It
-uses `RELEASE_GITHUB_TOKEN` when set, otherwise the active `gh` credentials.
-Each of the six platform/architecture archives contains both executables and
-this README; Windows ZIPs contain both `.exe` files. The Homebrew cask installs
-both binaries. Syft scans each entire archive, covering the helper as well as
-Kapten. The scripts under `scripts/release-*` contain the complete release
-process.
-Offline publication regression tests use synthetic builds/GitHub responses and
-local Git repositories; run them with `python3 scripts/release_test.py`. They are also included in CLI test and quality tasks.
+The task checks the version is newer than the latest tag, then pushes an
+annotated tag. The tag starts the Release workflow
+(`.github/workflows/release.yml`), on GitHub's runners:
 
-Test the packaging locally without publishing:
+1. **Build**: runs the quality gate again, cross-compiles `kapten` and the
+   Restish MCP helper pinned in `go.mod` for darwin, linux and windows on amd64
+   and arm64 (`scripts/release-build`), writes an SPDX SBOM per archive with
+   Syft and `checksums.txt`, and the notes: the commits since the previous
+   release (`scripts/release-notes`).
+2. **Publish**: creates the GitHub release as a draft, uploads the files and
+   publishes it; a SemVer prerelease becomes a GitHub prerelease. A rerun
+   replaces a draft's files.
+3. **Verify**: downloads the published archive and checks it as a user would
+   (`mise run release:verify -- vX.Y.Z`).
+
+Each archive holds both executables and this README; Windows archives are ZIPs
+with `.exe` files.
+
+Build the archives locally without publishing:
 
 ```bash
 mise run release:snapshot
 ./dist/bin/linux_amd64/kapten --version
 ```
 
-Download a published release with the GitHub
-CLI:
-
-```bash
-gh release download v0.1.0 --repo kapten-io/cli --pattern 'kapten_*_linux_amd64.tar.gz'
-```
+`python3 scripts/release_test.py` tests the release scripts offline, with
+synthetic builds and local Git repositories; `mise run test` and
+`mise run quality` include it.
