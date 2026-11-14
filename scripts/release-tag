@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # Tag main's head as a release and push the tag: the Release workflow builds
-# and publishes it.
+# and publishes it. Without a version, the next one comes from the commit
+# titles since the latest release (see release_next) and is confirmed first
+# when run from a terminal.
 set -euo pipefail
 
 usage() {
-  echo "usage: mise run release -- X.Y.Z[-prerelease]" >&2
+  echo "usage: mise run release [-- X.Y.Z[-prerelease]]" >&2
   exit 2
 }
 
 source "$(dirname "$0")/release-common"
-[[ $# -eq 1 ]] || usage
-version="$(release_version "$1")" || usage
-tag="v$version"
+[[ $# -le 1 ]] || usage
+if [[ $# -eq 1 ]]; then
+  version="$(release_version "$1")" || usage
+fi
 
 for command in gh git python3; do
   command -v "$command" >/dev/null || {
@@ -31,11 +34,29 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "release-tag: commit or stash the tracked changes first" >&2
   exit 1
 fi
+latest="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1)"
+if [[ -z "${version:-}" ]]; then
+  stable="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | grep -v -- - | head -n 1 || true)"
+  range="$head"
+  [[ -z "$stable" ]] || range="$stable..$head"
+  version="$(git log "$range" --no-merges --format='%s%x09%b%x00' | release_next "${stable#v}")"
+  if [[ -z "$version" ]]; then
+    echo "release-tag: nothing to release since ${stable:-the first commit} (only ci, docs, test or style commits)" >&2
+    exit 1
+  fi
+  echo "Next version: v$version"
+  git log "$range" --no-merges --format='  %s'
+  if [[ -t 0 ]]; then
+    read -r -p "Release v$version? [y/N] " answer
+    [[ "$answer" == [yY]* ]] || exit 1
+  fi
+fi
+tag="v$version"
+
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
   echo "release-tag: $tag already exists" >&2
   exit 1
 fi
-latest="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1)"
 if [[ -n "$latest" ]] && ! release_newer "$version" "${latest#v}"; then
   echo "release-tag: $tag is not newer than $latest" >&2
   exit 1

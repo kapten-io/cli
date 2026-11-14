@@ -51,9 +51,9 @@ depends = ["quality"]
 run = "./scripts/release-build v0.0.0-snapshot"
 
 [tasks.release]
-description = "Tag main as a release, which the Release workflow publishes: mise run release -- X.Y.Z"
-usage = 'arg "<version>" help="SemVer version, such as 0.2.0 or 0.2.0-rc.1"'
-run = './scripts/release-tag "${usage_version}"'
+description = "Tag main as a release, which the Release workflow publishes: mise run release [-- X.Y.Z]"
+usage = 'arg "[version]" help="SemVer version, such as 0.2.0 or 0.2.0-rc.1; by default the next one from the commit titles"'
+run = './scripts/release-tag ${usage_version:-}'
 
 [tasks."release:verify"]
 description = "Download a published release for this machine and check it: mise run release:verify -- vX.Y.Z"
