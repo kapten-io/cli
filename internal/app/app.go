@@ -71,9 +71,15 @@ func (a *App) RunContext(runCtx context.Context, argv []string) error {
 	if len(args) >= 2 && args[0] == "help" && args[1] == "mcp" {
 		return a.mcpContext(runCtx, append(append([]string{}, args[2:]...), "--help"), opts.Context)
 	}
+	if len(args) >= 2 && args[0] == "help" && args[1] == "skills" {
+		return a.skillsContext(runCtx, append(append([]string{}, args[2:]...), "--help"))
+	}
 	for i, arg := range beforeDelimiter(args) {
 		if arg == "mcp" {
 			return a.mcpContext(runCtx, append(append([]string{}, args[:i]...), args[i+1:]...), opts.Context)
+		}
+		if arg == "skills" {
+			return a.skillsContext(runCtx, append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 		if arg != "--help" && !strings.HasPrefix(arg, "--help=") && arg != "-h" && !strings.HasPrefix(arg, "-h=") {
 			break
