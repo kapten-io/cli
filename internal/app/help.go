@@ -40,6 +40,7 @@ Resources:
 %s
 Coding agents:
   mcp          Serve Kapten operations over local stdio MCP
+  skills       Install the agent skill and MCP servers for coding agents
 
 Other:
   completion   Generate the autocompletion script for a shell

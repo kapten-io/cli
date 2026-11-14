@@ -78,6 +78,8 @@ func (a *App) referencePages(ctx context.Context) ([]referencePage, error) {
 	}
 	pages = append(pages, referencePage{"mcp.mdx", cobraPage("mcp", "Serve Kapten operations as MCP tools to a coding agent, over stdio.", mcpIntro, a.mcpCommand(""))})
 	order = append(order, "mcp")
+	pages = append(pages, referencePage{"skills.mdx", cobraPage("skills", "Install the Kapten agent skill and MCP servers for coding agents.", skillsIntro, a.skillsCommand())})
+	order = append(order, "skills")
 	pages = append(pages, referencePage{"index.mdx", indexPage(root, groups)})
 	pages = append(pages, referencePage{"meta.ts", metaFile(order)})
 	sort.Slice(pages, func(i, j int) bool { return pages[i].name < pages[j].name })
@@ -96,6 +98,8 @@ func (a *App) helpText(ctx context.Context, args []string) (string, error) {
 }
 
 const authIntro = "`kapten login`, `kapten whoami` and `kapten logout` are shortcuts for the `kapten auth` commands of the same name. See [Authentication](/cli/authentication) for how logins, contexts and server mode work."
+
+const skillsIntro = "See [Coding agents](/cli/mcp) for what the skill and the MCP servers give an agent."
 
 const mcpIntro = "See [Coding agents](/cli/mcp) to configure an MCP client."
 

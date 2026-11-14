@@ -84,7 +84,10 @@ func (a *App) complete(ctx context.Context, args []string) error {
 	if len(args) >= 2 && args[1] == "mcp" {
 		return a.mcpContext(ctx, append([]string{args[0]}, args[2:]...), "")
 	}
-	if len(args) != 2 || (!strings.HasPrefix("auth", args[1]) && !strings.HasPrefix("mcp", args[1])) {
+	if len(args) >= 2 && args[1] == "skills" {
+		return a.skillsContext(ctx, append([]string{args[0]}, args[2:]...))
+	}
+	if len(args) != 2 || (!strings.HasPrefix("auth", args[1]) && !strings.HasPrefix("mcp", args[1]) && !strings.HasPrefix("skills", args[1])) {
 		return a.resourceWithContext(ctx, args, "", true)
 	}
 	var output bytes.Buffer
@@ -105,6 +108,7 @@ func (a *App) complete(ctx context.Context, args []string) error {
 	for _, owned := range []struct{ name, description string }{
 		{"auth", "Manage Kapten authentication contexts"},
 		{"mcp", "Serve Kapten resource operations over local stdio MCP"},
+		{"skills", "Install the Kapten agent skill and MCP servers for coding agents"},
 	} {
 		if !strings.HasPrefix(owned.name, args[1]) {
 			continue

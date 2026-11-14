@@ -17,7 +17,7 @@ func TestPublicCommandInventoryIntegration(t *testing.T) {
 	isolateCommandFilesystem(t)
 	server := mockengine.New(t, spec.OpenAPI)
 	// Kapten's own commands are listed on the root page with the groups.
-	expected := map[string]bool{"help": true, "completion": true, "login": true, "whoami": true, "logout": true, "auth": true, "mcp": true}
+	expected := map[string]bool{"help": true, "completion": true, "login": true, "whoami": true, "logout": true, "auth": true, "mcp": true, "skills": true}
 	for _, operation := range server.Operations {
 		if !operation.Ignored {
 			expected[operation.Groups[0]] = true
@@ -35,6 +35,7 @@ func TestPublicCommandInventoryIntegration(t *testing.T) {
 		{[]string{"--help"}, root},
 		{[]string{"auth", "--help"}, []string{"completion", "help", "list", "login", "logout", "use", "whoami"}},
 		{[]string{"completion", "--help"}, []string{"bash", "fish", "powershell", "zsh"}},
+		{[]string{"skills", "--help"}, []string{"completion", "help", "install"}},
 		{[]string{"auth", "completion", "--help"}, []string{"bash", "fish", "powershell", "zsh"}},
 	}
 	for _, scenario := range scenarios {

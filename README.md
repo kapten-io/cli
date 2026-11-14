@@ -246,6 +246,31 @@ data, including logs, and can modify or delete resources. Configure client
 approval policies appropriately or use `--operations` to expose only the tools
 needed for a session.
 
+## Coding agents
+
+`kapten skills install` sets up coding agents to use Kapten: it writes the
+agent skill of this CLI version where each agent reads skills, and with
+`--mcp` adds two MCP servers to each agent's configuration: `kapten`
+(`kapten mcp serve`, below) and `kapten-docs` (`https://docs.kapten.io/mcp`,
+search and read the docs). Without `--agent`, it installs for every agent that
+has run on this machine; `--global` installs for the user instead of the
+current project, `--dry-run` only prints the files.
+
+| Agent (`--agent`) | Skill, project / `--global` | MCP configuration, project / `--global` |
+| --- | --- | --- |
+| `claude-code` | `.claude/skills` / `~/.claude/skills` | `.mcp.json` / `~/.claude.json` |
+| `codex` | `.agents/skills` / `~/.codex/skills` | `.codex/config.toml` / `~/.codex/config.toml` |
+| `cursor` | `.agents/skills` / `~/.cursor/skills` | `.cursor/mcp.json` / `~/.cursor/mcp.json` |
+| `opencode` | `.agents/skills` / `~/.config/opencode/skills` | `opencode.json` / `~/.config/opencode/opencode.json` |
+| `copilot` | `.agents/skills` / `~/.copilot/skills` | `.vscode/mcp.json` / `~/.copilot/mcp-config.json` |
+
+It replaces only the `kapten` skill and the `kapten` and `kapten-docs` server
+entries, and refuses to touch a configuration file that is not valid JSON.
+Running it again updates them, and says when the copy it replaces came from
+another CLI version. The `kapten` server runs this executable by its absolute
+path (or `npx -y @kapten/cli@<version>` when it runs from npx), with
+`--context` when one is given: `kapten --context work skills install --mcp`.
+
 ## Agent skill
 
 `skills/kapten/` is an [Agent Skill](https://agentskills.io) that teaches
