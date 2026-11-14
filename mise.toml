@@ -41,7 +41,7 @@ description = "Regenerate and verify the CLI"
 run = [
   "go test ./...",
   "go vet ./...",
-  "bash -n scripts/release-common scripts/release-build scripts/release-notes scripts/release-npm scripts/release-next scripts/release-verify",
+  "bash -n scripts/release-common scripts/release-build scripts/release-docs-pr scripts/release-notes scripts/release-npm scripts/release-next scripts/release-verify",
   "python3 scripts/release_test.py",
 ]
 
