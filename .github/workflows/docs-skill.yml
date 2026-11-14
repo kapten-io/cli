@@ -1,6 +1,6 @@
 name: Docs skill
 
-# skills/kapten-docs is a copy of the skill docs.kapten.io generates. This
+# plugin/skills/kapten-docs is a copy of the skill docs.kapten.io generates. This
 # fails when the published skill changed, so someone runs
 # `mise run skills:docs` and commits the result.
 on:

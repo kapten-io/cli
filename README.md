@@ -273,31 +273,31 @@ path (or `npx -y @kapten/cli@<version>` when it runs from npx), with
 
 ## Agent plugin
 
-This repository is also a plugin for coding agents, with the `kapten` and
-`kapten-docs` skills and two MCP servers: `kapten` (run with
+`plugin/` and `skills/kapten` make a plugin for coding agents, with the
+`kapten` and `kapten-docs` skills and two MCP servers: `kapten` (run with
 `npx -y @kapten/cli@latest mcp serve`, so it needs Node.js and a login made
 with `kapten login` or the server-mode variables) and `kapten-docs`
-(`https://docs.kapten.io/mcp`).
+(`https://docs.kapten.io/mcp`). Each release publishes it to
+[kapten-io/skills](https://github.com/kapten-io/skills), where agents install
+it:
 
 ```bash
 # Claude Code
-/plugin marketplace add kapten-io/cli
+/plugin marketplace add kapten-io/skills
 /plugin install kapten@kapten
 
-# Codex, Cursor and other Agent Plugins clients: install from this
-# repository; the Codex marketplace is .agents/plugins/marketplace.json
-
 # Skills only, for any agent (npx skills)
-npx skills add kapten-io/cli
+npx skills add kapten-io/skills
 ```
 
-The root `plugin.json` and `mcp.json` follow
-[Agent Plugins 1.0](https://agent-plugins.org); `.claude-plugin/` holds
-Claude Code's manifest and marketplace. `skills/plugin_test.go` checks them
-against the Agent Plugins schemas and against each other.
-`skills/kapten-docs` is a copy of the skill docs.kapten.io generates:
-`mise run skills:docs` updates it, and a weekly workflow fails when it is out
-of date.
+`plugin/plugin.json` and `plugin/mcp.json` follow
+[Agent Plugins 1.0](https://agent-plugins.org); `plugin/.claude-plugin/`
+holds Claude Code's manifest and marketplace, `plugin/.agents/` Codex's
+marketplace, and `plugin/README.md` the published repository's README.
+`skills/plugin_test.go` checks the manifests against the Agent Plugins
+schemas and against each other. `plugin/skills/kapten-docs` is a copy of the
+skill docs.kapten.io generates: `mise run skills:docs` updates it, and a
+weekly workflow fails when it is out of date.
 
 ## Agent skill
 
@@ -421,7 +421,12 @@ nothing to release. The workflow runs on GitHub's runners:
    docs at docs.kapten.io and regenerates their command reference and agent
    skills (`scripts/release-docs-pr`). It runs in the `release` environment,
    which only `main` can use, as the GitHub App Kapten Release.
-6. **Verify**: checks the published archive against `checksums.txt` and its
+6. **Agent plugin**: publishes `plugin/` and `skills/kapten`, stamped with
+   the version, as the content of
+   [kapten-io/skills](https://github.com/kapten-io/skills), tagged with the
+   same version (`scripts/release-plugin`), in the same environment and as
+   the same App.
+7. **Verify**: checks the published archive against `checksums.txt` and its
    provenance, then runs the release installed with mise, which verifies the
    manifest, and with npx (`mise run release:verify -- vX.Y.Z`).
 

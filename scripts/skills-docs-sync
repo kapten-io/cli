@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Copy the kapten-docs skill that docs.kapten.io publishes into
-skills/kapten-docs, after checking it against the digest of the site's agent
+plugin/skills/kapten-docs, after checking it against the digest of the site's agent
 skills index. With --check, exit 1 instead when the copy is out of date."""
 
 import hashlib
@@ -11,7 +11,7 @@ import urllib.request
 
 SITE = "https://docs.kapten.io"
 INDEX = SITE + "/.well-known/agent-skills/index.json"
-TARGET = pathlib.Path(__file__).resolve().parent.parent / "skills" / "kapten-docs" / "SKILL.md"
+TARGET = pathlib.Path(__file__).resolve().parent.parent / "plugin" / "skills" / "kapten-docs" / "SKILL.md"
 
 
 def fetch(url):
@@ -34,13 +34,13 @@ def main():
         sys.exit(f"kapten-docs SKILL.md does not match the index digest {entry['digest']}")
     current = TARGET.read_bytes() if TARGET.exists() else b""
     if current == data:
-        print("skills/kapten-docs is up to date")
+        print("plugin/skills/kapten-docs is up to date")
         return
     if check:
-        sys.exit("skills/kapten-docs is out of date: run mise run skills:docs and commit the result")
+        sys.exit("plugin/skills/kapten-docs is out of date: run mise run skills:docs and commit the result")
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     TARGET.write_bytes(data)
-    print(f"Updated skills/kapten-docs from {SITE}")
+    print(f"Updated plugin/skills/kapten-docs from {SITE}")
 
 
 if __name__ == "__main__":
