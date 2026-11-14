@@ -416,7 +416,12 @@ nothing to release. The workflow runs on GitHub's runners:
    (`scripts/release-npm`). It runs in the `npm` environment, which only
    `main` can use, with npm trusted publishing: no token, and npm records the
    provenance.
-5. **Verify**: checks the published archive against `checksums.txt` and its
+5. **Docs pull request**: opens or updates the pull request of
+   `kapten-io/kapten` (branch `cli-release`) that pins this release for the
+   docs at docs.kapten.io and regenerates their command reference and agent
+   skills (`scripts/release-docs-pr`). It runs in the `release` environment,
+   which only `main` can use, as the GitHub App Kapten Release.
+6. **Verify**: checks the published archive against `checksums.txt` and its
    provenance, then runs the release installed with mise, which verifies the
    manifest, and with npx (`mise run release:verify -- vX.Y.Z`).
 
