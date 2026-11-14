@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: mise run release:publish -- vX.Y.Z[-prerelease]" >&2
+  exit 2
+}
+
+source "$(dirname "$0")/release-common"
+[[ $# -eq 1 ]] || usage
+version="$(release_version "${1#cli/}")" || usage
+release_tag="v$version"
+source_tag="$release_tag"
+
+for command in gh git grep jq mktemp awk; do
+  command -v "$command" >/dev/null || {
+    echo "release-publish: required command not found: $command" >&2
+    exit 1
+  }
+done
+
+if [[ -n "${RELEASE_GITHUB_TOKEN:-}" ]]; then
+  export GH_TOKEN="$RELEASE_GITHUB_TOKEN"
+fi
+gh auth status >/dev/null
+gh repo view kapten-io/cli >/dev/null
+gh repo view kapten-io/homebrew-tap >/dev/null
+
+root="$(git rev-parse --show-toplevel)"
+cli="$root"
+dist="$cli/dist"
+head="$(git -C "$root" rev-parse HEAD)"
+
+if ! git -C "$root" diff --quiet || ! git -C "$root" diff --cached --quiet; then
+  echo "release-publish: tracked changes must be committed before publishing" >&2
+  exit 1
+fi
+
+if git -C "$root" rev-parse -q --verify "refs/tags/$source_tag" >/dev/null; then
+  tagged_commit="$(git -C "$root" rev-list -n 1 "$source_tag")"
+  if [[ "$tagged_commit" != "$head" ]]; then
+    echo "release-publish: $source_tag points to $tagged_commit instead of HEAD ($head)" >&2
+    exit 1
+  fi
+fi
+
+release_notes="$(mktemp)"
+tap_checkout=""
+published_dist=""
+cleanup() {
+  rm -f "$release_notes"
+  [[ -z "$tap_checkout" ]] || rm -rf "$tap_checkout"
+  [[ -z "$published_dist" ]] || rm -rf "$published_dist"
+}
+trap cleanup EXIT
+
+previous_source_tag="$(git -C "$root" tag --list 'v*' --sort=-v:refname | grep -Fxv "$source_tag" | head -n 1 || true)"
+if [[ -n "$previous_source_tag" ]]; then
+  changelog_range="$previous_source_tag..$head"
+else
+  changelog_range="$head"
+fi
+
+changes="$(git -C "$root" log "$changelog_range" --no-merges --format='- %s (`%h`)')"
+{
+  echo '## Changes'
+  echo
+  if [[ -n "$changes" ]]; then
+    echo "$changes"
+  else
+    echo '- No user-facing CLI changes recorded.'
+  fi
+} >"$release_notes"
+
+prerelease=false
+[[ "$version" == *-* ]] && prerelease=true
+release_exists=false
+release_is_draft=false
+if release_data="$(gh release view "$release_tag" --repo kapten-io/cli --json isDraft,body,url 2>/dev/null)"; then
+  release_exists=true
+  release_is_draft="$(jq -r .isDraft <<<"$release_data")"
+  if [[ "$(jq -r .body <<<"$release_data")" != "$(cat "$release_notes")" ]]; then
+    echo "release-publish: existing release notes differ from the CLI changelog" >&2
+    exit 1
+  fi
+fi
+
+# A published retry only needs the immutable downloads and tap recovery.
+if [[ "$release_exists" == false || "$release_is_draft" == true ]]; then
+  echo "Building $release_tag"
+  "$cli/scripts/release-build" "$release_tag"
+fi
+
+if ! git -C "$root" rev-parse -q --verify "refs/tags/$source_tag" >/dev/null; then
+  git -C "$root" tag -a "$source_tag" -m "Kapten CLI $release_tag"
+fi
+remote_commit="$(git -C "$root" ls-remote --tags origin "refs/tags/$source_tag^{}" | awk 'NR == 1 { print $1 }')"
+if [[ -z "$remote_commit" ]]; then
+  git -C "$root" push origin "$source_tag"
+elif [[ "$remote_commit" != "$head" ]]; then
+  echo "release-publish: origin/$source_tag points to $remote_commit instead of HEAD ($head)" >&2
+  exit 1
+fi
+
+if [[ "$release_exists" == false ]]; then
+  args=(
+    release create "$release_tag"
+    --repo kapten-io/cli
+    --target main
+    --title "Kapten CLI $release_tag"
+    --notes-file "$release_notes"
+    --draft
+  )
+  [[ "$prerelease" == true ]] && args+=(--prerelease)
+  gh "${args[@]}" >/dev/null
+  release_is_draft=true
+fi
+
+asset_names=()
+while IFS= read -r name; do
+  asset_names+=("$name")
+done < <(release_assets "$version")
+
+upload_asset() {
+  local asset="$1"
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if gh release upload "$release_tag" "$asset" --repo kapten-io/cli --clobber; then
+      return
+    fi
+    if [[ "$attempt" == 5 ]]; then
+      echo "release-publish: failed to upload $(basename "$asset")" >&2
+      return 1
+    fi
+    echo "release-publish: upload failed; retrying in $((attempt * 5))s" >&2
+    sleep $((attempt * 5))
+  done
+}
+
+if [[ "$release_is_draft" == true ]]; then
+  for name in "${asset_names[@]}"; do
+    echo "Uploading $name"
+    upload_asset "$dist/$name"
+  done
+
+  remote_assets="$(gh release view "$release_tag" --repo kapten-io/cli --json assets --jq '.assets[].name')"
+  for name in "${asset_names[@]}"; do
+    grep -Fxq "$name" <<<"$remote_assets" || {
+      echo "release-publish: uploaded release is missing $name" >&2
+      exit 1
+    }
+  done
+
+  gh release edit "$release_tag" --repo kapten-io/cli \
+    --draft=false --prerelease="$prerelease" >/dev/null
+fi
+
+release_data="$(gh release view "$release_tag" --repo kapten-io/cli --json url,body,isDraft,isPrerelease,assets)"
+[[ "$(jq -r .isDraft <<<"$release_data")" == false ]]
+[[ "$(jq -r .isPrerelease <<<"$release_data")" == "$prerelease" ]]
+[[ "$(jq -r .body <<<"$release_data")" == "$(cat "$release_notes")" ]]
+remote_assets="$(jq -r '.assets[].name' <<<"$release_data")"
+for name in "${asset_names[@]}"; do
+  grep -Fxq "$name" <<<"$remote_assets" || {
+    echo "release-publish: published release is missing $name" >&2
+    exit 1
+  }
+done
+release_url="$(jq -r .url <<<"$release_data")"
+
+# Derive the tap cask from verified published downloads, not workspace artifacts.
+# Published retries have no build output; new/draft releases verify their uploads.
+published_dist="$(mktemp -d)"
+gh release download "$release_tag" --repo kapten-io/cli \
+  --pattern 'kapten_*' --pattern checksums.txt --dir "$published_dist"
+for name in "${asset_names[@]}"; do
+  [[ "$name" == checksums.txt ]] && continue
+  expected="$(release_checksum "$published_dist/checksums.txt" "$name")" || {
+    echo "release-publish: published checksum is missing, invalid, or mismatched for $name" >&2
+    exit 1
+  }
+  actual="$(release_sha256 "$published_dist/$name")"
+  if [[ "$expected" != "$actual" ]]; then
+    echo "release-publish: published checksum is missing, invalid, or mismatched for $name" >&2
+    exit 1
+  fi
+done
+"$cli/scripts/release-cask" "$release_tag" "$published_dist/Casks/kapten.rb"
+
+tap_checkout="$(mktemp -d)"
+gh repo clone kapten-io/homebrew-tap "$tap_checkout" -- --depth=1 >/dev/null
+mkdir -p "$tap_checkout/Casks"
+cp "$published_dist/Casks/kapten.rb" "$tap_checkout/Casks/kapten.rb"
+git -C "$tap_checkout" add Casks/kapten.rb
+if ! git -C "$tap_checkout" diff --cached --quiet -- Casks/kapten.rb; then
+  git -C "$tap_checkout" config user.name "Kapten Release"
+  git -C "$tap_checkout" config user.email "release@kapten.ai"
+  git -C "$tap_checkout" commit -m "chore: update Kapten CLI to $release_tag" >/dev/null
+  git -C "$tap_checkout" push >/dev/null
+fi
+
+remote_cask="$(gh api -H 'Accept: application/vnd.github.raw+json' repos/kapten-io/homebrew-tap/contents/Casks/kapten.rb)"
+[[ "$remote_cask" == "$(cat "$published_dist/Casks/kapten.rb")" ]] || {
+  echo "release-publish: remote cask differs from the verified published artifacts" >&2
+  exit 1
+}
+
+printf 'Published %s\nRelease: %s\nHomebrew cask: https://github.com/kapten-io/homebrew-tap/blob/main/Casks/kapten.rb\n' \
+  "$source_tag" "$release_url"

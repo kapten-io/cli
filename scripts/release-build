@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: release-build vX.Y.Z[-prerelease]" >&2
+  exit 2
+}
+
+source "$(dirname "$0")/release-common"
+[[ $# -eq 1 ]] || usage
+version="$(release_version "$1")" || usage
+
+for command in go git python3 syft tar; do
+  command -v "$command" >/dev/null || {
+    echo "release-build: required command not found: $command" >&2
+    exit 1
+  }
+done
+
+root="$(git rev-parse --show-toplevel)"
+cli="$root"
+dist="$cli/dist"
+commit="$(git -C "$root" rev-parse HEAD)"
+build_date="$(git -C "$root" show -s --format=%cI HEAD)"
+ldflags="-s -w -X main.version=$version -X main.commit=$commit -X main.date=$build_date"
+
+targets=()
+while IFS= read -r target; do
+  targets+=("$target")
+done < <(release_targets)
+
+rm -rf "$dist"
+mkdir -p "$dist/bin"
+stage=""
+cleanup() {
+  [[ -z "$stage" ]] || rm -rf "$stage"
+}
+trap cleanup EXIT
+
+for target in "${targets[@]}"; do
+  os="${target%/*}"
+  arch="${target#*/}"
+  name="kapten_${version}_${os}_${arch}"
+  binary="kapten"
+  helper="restish-mcp"
+  if [[ "$os" == windows ]]; then
+    binary="kapten.exe"
+    helper="restish-mcp.exe"
+  fi
+
+  output="$dist/bin/${os}_${arch}/$binary"
+  mkdir -p "$(dirname "$output")"
+
+  echo "Building $os/$arch"
+  (
+    cd "$cli"
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOAMD64=v1 \
+      go build -mod=readonly -trimpath -ldflags "$ldflags" -o "$output" ./cmd/kapten
+    # Build from the version pinned in go.mod, never go install ...@version.
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOAMD64=v1 \
+      go build -mod=readonly -trimpath -ldflags "-s -w" \
+        -o "$(dirname "$output")/$helper" github.com/rest-sh/restish/v2/cmd/restish-mcp
+  )
+
+  stage="$(mktemp -d)"
+  cp "$output" "$stage/$binary"
+  cp "$(dirname "$output")/$helper" "$stage/$helper"
+  cp "$cli/README.md" "$stage/README.md"
+
+  if [[ "$os" == windows ]]; then
+    archive="$dist/$name.zip"
+    (
+      cd "$stage"
+      python3 -m zipfile -c "$archive" "$binary" "$helper" README.md
+    )
+  else
+    archive="$dist/$name.tar.gz"
+    COPYFILE_DISABLE=1 tar -C "$stage" -czf "$archive" "$binary" "$helper" README.md
+  fi
+  rm -rf "$stage"
+  stage=""
+
+  echo "Generating $(basename "$archive").sbom.json"
+  syft scan "$archive" --quiet --output "spdx-json=$archive.sbom.json"
+done
+
+(
+  cd "$dist"
+  : >checksums.txt
+  while IFS= read -r artifact; do
+    [[ "$artifact" == checksums.txt ]] && continue
+    digest="$(release_sha256 "$artifact")"
+    printf '%s  %s\n' "$digest" "$artifact" >>checksums.txt
+  done < <(release_assets "$version")
+)
+
+"$cli/scripts/release-cask" "v$version" "$dist/Casks/kapten.rb"
+echo "Release artifacts are in $dist"

@@ -1,0 +1,47 @@
+[tools]
+go = "1.26.4"
+"aqua:anchore/syft" = "1.51.1"
+
+[tasks."spec:update"]
+description = "Copy the bundled Engine OpenAPI document from a kapten checkout: mise run spec:update -- ../kapten"
+usage = 'arg "<kapten>" help="Path to a kapten checkout whose Engine document is bundled (mise run //engine:openapi:bundle)"'
+run = 'cp "${usage_kapten}/engine/api/openapi.yml" internal/spec/openapi.yml'
+
+[tasks.docs]
+description = "Write the CLI reference of the docs site from the command tree: mise run docs -- <directory>"
+usage = 'arg "<directory>" help="Where to write the pages, such as docs/product/content/cli/reference in a kapten checkout"'
+run = 'go run ./cmd/kapten-docs "${usage_directory}"'
+
+[tasks.test]
+description = "Run CLI tests"
+run = ["go test ./...", "python3 scripts/release_test.py"]
+
+[tasks.mock]
+description = "Serve a local stand-in for auth and the Engine to try the CLI against"
+run = "go run ./cmd/kapten-mock"
+
+[tasks.build]
+description = "Build the Kapten CLI and adjacent local MCP helper"
+run = [
+  "go build -mod=readonly -o . ./cmd/kapten",
+  "go build -mod=readonly -o . github.com/rest-sh/restish/v2/cmd/restish-mcp",
+]
+
+[tasks.quality]
+description = "Regenerate and verify the CLI"
+run = [
+  "go test ./...",
+  "go vet ./...",
+  "bash -n scripts/release-common scripts/release-build scripts/release-cask scripts/release-publish",
+  "python3 scripts/release_test.py",
+]
+
+[tasks."release:snapshot"]
+description = "Build local release archives without publishing"
+depends = ["quality"]
+run = "./scripts/release-build v0.0.0-snapshot"
+
+[tasks."release:publish"]
+description = "Tag, build, and publish a CLI release from this machine"
+depends = ["quality"]
+run = "./scripts/release-publish"
