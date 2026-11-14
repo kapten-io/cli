@@ -1,11 +1,13 @@
 name: Release
 
-# A version tag, pushed with `mise run release -- X.Y.Z`, builds the archives,
-# signs a packslip manifest of them, publishes them as a GitHub release and
-# installs the published release with mise.
+# A version tag builds the archives, signs a packslip manifest of them,
+# publishes them as a GitHub release and installs the published release with
+# mise. The tag comes from the "Release a version" workflow, which dispatches
+# this one on it, or from `mise run release`, whose push starts it.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -16,6 +18,7 @@ concurrency:
 jobs:
   build:
     name: Build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

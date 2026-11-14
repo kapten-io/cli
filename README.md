@@ -386,8 +386,13 @@ backend behavior, multi-page aggregation, or production OAuth interoperability.
 
 ## Releases
 
-Releases are SemVer versions, tagged `vX.Y.Z` on `main`. To release, from an
-up-to-date `main` whose quality gate passed:
+Releases are SemVer versions, tagged `vX.Y.Z` on `main`. To release, run the
+[Release a version](https://github.com/kapten-io/cli/actions/workflows/release-tag.yml)
+workflow on `main` ("Run workflow" in the Actions tab), with an empty version
+for the next one or a given version. It tags `main`'s head once its quality
+gate passed and starts the Release workflow on the tag.
+
+The same from a terminal, on an up-to-date `main`:
 
 ```bash
 mise run release                 # the next version, from the commit titles
