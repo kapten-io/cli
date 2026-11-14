@@ -85,16 +85,15 @@ class ReleaseTests(unittest.TestCase):
         self.git("tag", "v0.1.0")
         for commits, expected in ((["fix: a bug", "docs: a page"], "0.1.1"),
                                   (["feat(cli): a command", "fix: another bug"], "0.2.0"),
-                                  (["feat!: a breaking change"], "0.3.0"),
-                                  (["refactor: a cleanup\n\nBREAKING CHANGE: a flag is gone"], "0.4.0")):
+                                  (["feat!: a breaking change"], "1.0.0"),
+                                  (["refactor: a cleanup\n\nBREAKING CHANGE: a flag is gone"], "2.0.0")):
             with self.subTest(expected=expected):
                 for message in commits:
                     self.commit(message, push=False)
                 self.assertEqual(self.next_version().stdout.strip(), expected)
                 self.git("tag", "v" + expected)
-        self.git("tag", "v1.0.0")
         self.commit("feat!: drop a command", push=False)
-        self.assertEqual(self.next_version().stdout.strip(), "2.0.0")
+        self.assertEqual(self.next_version().stdout.strip(), "3.0.0")
 
     def test_next_version_ignores_prereleases_and_needs_a_change(self):
         self.git("tag", "v0.1.0-rc.1")

@@ -391,8 +391,8 @@ Releases are SemVer versions, tagged `vX.Y.Z` on `main`. To release, run the
 workflow on `main`: "Run workflow" in the Actions tab. It releases `main`'s
 head as the next version, picked from the commit titles since the latest
 release (`scripts/release-next`): a breaking change (`feat!:`, or a
-`BREAKING CHANGE:` footer) bumps the major version (the minor one before
-1.0.0), `feat:` the minor version, and any other commit but `ci:`, `docs:`,
+`BREAKING CHANGE:` footer) bumps the major version, so `feat!:` takes 0.x
+to 1.0.0, `feat:` the minor version, and any other commit but `ci:`, `docs:`,
 `test:` and `style:` the patch version. With only those, it fails: there is
 nothing to release. The workflow runs on GitHub's runners:
 
