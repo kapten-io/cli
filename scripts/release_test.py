@@ -125,6 +125,40 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn(message, result.stderr)
         self.assertEqual(sorted(self.remote_tags()), ["v1.2.3", "v1.2.3-rc.1"])
 
+    def test_tag_without_version_starts_at_0_1_0(self):
+        result = self.script("release-tag")
+        self.assertIn("Next version: v0.1.0", result.stdout)
+        self.assertEqual(self.remote_tags(), ["v0.1.0"])
+
+    def test_tag_without_version_follows_the_commit_titles(self):
+        self.script("release-tag", "0.1.0")
+        for commits, expected in ((["fix: a bug", "docs: a page"], "v0.1.1"),
+                                  (["feat(cli): a command", "fix: another bug"], "v0.2.0"),
+                                  (["feat!: a breaking change"], "v0.3.0"),
+                                  (["refactor: a cleanup\n\nBREAKING CHANGE: a flag is gone"], "v0.4.0")):
+            with self.subTest(expected=expected):
+                for message in commits:
+                    self.commit(message)
+                result = self.script("release-tag")
+                self.assertIn(f"Next version: {expected}", result.stdout)
+                self.assertIn(expected, self.remote_tags())
+        self.script("release-tag", "1.0.0")
+        self.commit("feat!: drop a command")
+        self.script("release-tag")
+        self.assertIn("v2.0.0", self.remote_tags())
+
+    def test_tag_without_version_skips_prereleases_and_needs_a_change(self):
+        self.script("release-tag", "0.1.0")
+        self.commit("feat: a command")
+        self.script("release-tag", "0.2.0-rc.1")
+        self.commit("ci: a job")
+        result = self.script("release-tag")
+        self.assertIn("Next version: v0.2.0", result.stdout)
+        self.commit("docs: a page")
+        self.commit("test: a case")
+        result = self.script("release-tag", success=False)
+        self.assertIn("nothing to release", result.stderr)
+
     def test_notes_list_commits_since_the_previous_release(self):
         self.git("tag", "-a", "v1.0.0", "-m", "v1.0.0")
         self.commit("feat: first change")

@@ -390,11 +390,17 @@ Releases are SemVer versions, tagged `vX.Y.Z` on `main`. To release, from an
 up-to-date `main` whose quality gate passed:
 
 ```bash
-mise run release -- 0.2.0        # or 0.2.0-rc.1 for a prerelease
+mise run release                 # the next version, from the commit titles
+mise run release -- 0.2.0-rc.1   # or a given version, such as a prerelease
 ```
 
-The task checks the version is newer than the latest tag, then pushes an
-annotated tag. The tag starts the Release workflow
+Without a version, the task picks the next one from the commit titles since
+the latest release: a breaking change (`feat!:`, or a `BREAKING CHANGE:`
+footer) bumps the major version (the minor one before 1.0.0), `feat:` the
+minor version, and any other commit but `ci:`, `docs:`, `test:` and `style:`
+the patch version. It lists the commits and asks before tagging. The task
+checks the version is newer than the latest tag, then pushes an annotated
+tag. The tag starts the Release workflow
 (`.github/workflows/release.yml`), on GitHub's runners:
 
 1. **Build**: runs the quality gate again, cross-compiles `kapten` and the

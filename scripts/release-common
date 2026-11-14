@@ -34,6 +34,48 @@ sys.exit(0 if key(sys.argv[1]) > key(sys.argv[2]) else 1)
 PY
 }
 
+# The version that follows stable version $1 (empty for none yet) given the
+# commits on stdin, one "subject<TAB>body" record per NUL: a breaking change
+# ("type!:" or a "BREAKING CHANGE:" footer) bumps the major version (the minor
+# one before 1.0.0), "feat:" the minor version and anything else but
+# ci/docs/test/style the patch version. Prints nothing when nothing ships.
+release_next() {
+  python3 -c '
+import re, sys
+
+latest = sys.argv[1]
+records = [r for r in sys.stdin.read().split("\0") if r.strip()]
+if not latest:
+    print("0.1.0")
+    sys.exit()
+major, minor, patch = (int(part) for part in latest.split("."))
+bump = None
+rank = {None: 0, "patch": 1, "minor": 2, "major": 3}
+for record in records:
+    subject, _, body = record.partition("\t")
+    match = re.match(r"([a-z]+)(\([^)]*\))?(!)?:", subject.strip())
+    kind = match.group(1) if match else ""
+    if (match and match.group(3)) or re.search(r"^BREAKING[ -]CHANGE:", body, re.M):
+        level = "major"
+    elif kind == "feat":
+        level = "minor"
+    elif kind in ("ci", "docs", "test", "style"):
+        level = None
+    else:
+        level = "patch"
+    if rank[level] > rank[bump]:
+        bump = level
+if bump == "major" and major == 0:
+    bump = "minor"
+if bump == "major":
+    print(f"{major + 1}.0.0")
+elif bump == "minor":
+    print(f"{major}.{minor + 1}.0")
+elif bump == "patch":
+    print(f"{major}.{minor}.{patch + 1}")
+' "$1"
+}
+
 release_targets() {
   printf '%s\n' darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 }
