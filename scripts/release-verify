@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Check a published release as users get it: the archive for this machine
 # against checksums.txt and its build provenance, then an install with mise,
-# which verifies the packslip signature and digests.
+# which verifies the packslip signature and digests, and with npx.
 set -euo pipefail
 
 usage() {
@@ -14,7 +14,7 @@ source "$(dirname "$0")/release-common"
 version="$(release_version "$1")" || usage
 tag="v$version"
 
-for command in curl gh mise tar; do
+for command in curl gh mise npx tar; do
   command -v "$command" >/dev/null || {
     echo "release-verify: required command not found: $command" >&2
     exit 1
@@ -63,3 +63,11 @@ installed="$(mise exec "packslip:github.com/kapten-io/cli@$version" -- kapten --
   exit 1
 }
 echo "Installed with mise (packslip): $installed"
+
+# npm resolves @kapten/cli's platform package for this machine
+from_npm="$(cd "$work" && npm_config_cache="$work/npm-cache" npx --yes "@kapten/cli@$version" --version)"
+[[ "$from_npm" == "$reported" ]] || {
+  echo "release-verify: npx @kapten/cli printed '$from_npm', not '$reported'" >&2
+  exit 1
+}
+echo "Ran with npx (@kapten/cli): $from_npm"
