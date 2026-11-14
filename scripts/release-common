@@ -49,9 +49,9 @@ release_latest() {
 
 # The version that follows stable version $1 (empty for none yet) given the
 # commits on stdin, one "subject<TAB>body" record per NUL: a breaking change
-# ("type!:" or a "BREAKING CHANGE:" footer) bumps the major version (the minor
-# one before 1.0.0), "feat:" the minor version and anything else but
-# ci/docs/test/style the patch version. Prints nothing when nothing ships.
+# ("type!:" or a "BREAKING CHANGE:" footer) bumps the major version, "feat:"
+# the minor version and anything else but ci/docs/test/style the patch
+# version. Prints nothing when nothing ships.
 release_next() {
   python3 -c '
 import re, sys
@@ -78,8 +78,6 @@ for record in records:
         level = "patch"
     if rank[level] > rank[bump]:
         bump = level
-if bump == "major" and major == 0:
-    bump = "minor"
 if bump == "major":
     print(f"{major + 1}.0.0")
 elif bump == "minor":
