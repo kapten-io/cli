@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Shared pure release metadata and checksum helpers. Source this file.
+
+release_version() {
+  local version="${1#v}"
+  local identifier
+  local identifiers=()
+  [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] || return 1
+  if [[ "$version" == *-* ]]; then
+    IFS=. read -r -a identifiers <<<"${version#*-}"
+    for identifier in "${identifiers[@]}"; do
+      if [[ "$identifier" =~ ^[0-9]+$ && ${#identifier} -gt 1 && "$identifier" == 0* ]]; then
+        return 1
+      fi
+    done
+  fi
+  printf '%s\n' "$version"
+}
+
+release_targets() {
+  printf '%s\n' darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
+}
+
+release_assets() {
+  local version="$1"
+  local target os arch extension archive
+  while IFS= read -r target; do
+    os="${target%/*}"
+    arch="${target#*/}"
+    extension=tar.gz
+    [[ "$os" != windows ]] || extension=zip
+    archive="kapten_${version}_${os}_${arch}.${extension}"
+    printf '%s\n' "$archive" "$archive.sbom.json"
+  done < <(release_targets)
+  printf '%s\n' checksums.txt
+}
+
+release_sha256() {
+  if command -v sha256sum >/dev/null; then
+    sha256sum "$1" | awk '{ print $1 }'
+  elif command -v shasum >/dev/null; then
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  else
+    echo 'release: required command not found: sha256sum or shasum' >&2
+    return 1
+  fi
+}
+
+release_checksum() {
+  local value
+  value="$(awk -v file="$2" '$2 == file { print $1 }' "$1")" || return 1
+  [[ "$value" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "release: missing, duplicate, or invalid checksum for $2" >&2
+    return 1
+  }
+  printf '%s\n' "$value"
+}
