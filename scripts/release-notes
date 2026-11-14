@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Print the notes of a release: the commits since the previous version tag.
+# Print the notes of the release of HEAD as version $1: the commits since the
+# latest release.
 set -euo pipefail
 
 usage() {
-  echo "usage: release-notes vX.Y.Z[-prerelease]" >&2
+  echo "usage: release-notes vX.Y.Z" >&2
   exit 2
 }
 
@@ -12,25 +13,9 @@ source "$(dirname "$0")/release-common"
 version="$(release_version "$1")" || usage
 tag="v$version"
 
-git rev-parse -q --verify "refs/tags/$tag" >/dev/null || {
-  echo "release-notes: tag $tag not found" >&2
-  exit 1
-}
-
-# The closest earlier version tag reachable from this one; a prerelease is
-# compared with the one before it, a release with the previous release.
-previous=""
-while IFS= read -r candidate; do
-  [[ "$candidate" == "$tag" ]] && continue
-  release_version "$candidate" >/dev/null || continue
-  [[ "$version" != *-* && "$candidate" == *-* ]] && continue
-  git merge-base --is-ancestor "$candidate" "$tag" || continue
-  previous="$candidate"
-  break
-done < <(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname)
-
-range="$tag"
-[[ -z "$previous" ]] || range="$previous..$tag"
+latest="$(release_latest)"
+range=HEAD
+[[ -z "$latest" ]] || range="$latest..HEAD"
 changes="$(git log "$range" --no-merges --format='- %s')"
 
 echo '## Changes'
@@ -40,7 +25,7 @@ if [[ -n "$changes" ]]; then
 else
   echo '- No changes recorded.'
 fi
-if [[ -n "$previous" ]]; then
+if [[ -n "$latest" ]]; then
   echo
-  echo "**Full changelog**: https://github.com/kapten-io/cli/compare/$previous...$tag"
+  echo "**Full changelog**: https://github.com/kapten-io/cli/compare/$latest...$tag"
 fi

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Print the version of the next release of HEAD, from the commit titles since
+# the latest release (see release_next), or fail when nothing ships.
+set -euo pipefail
+
+source "$(dirname "$0")/release-common"
+[[ $# -eq 0 ]] || {
+  echo "usage: release-next" >&2
+  exit 2
+}
+
+latest="$(release_latest)"
+range=HEAD
+[[ -z "$latest" ]] || range="$latest..HEAD"
+version="$(git log "$range" --no-merges --format='%s%x09%b%x00' | release_next "${latest#v}")"
+if [[ -z "$version" ]]; then
+  echo "release-next: nothing to release since ${latest:-the first commit} (only ci, docs, test or style commits)" >&2
+  exit 1
+fi
+printf '%s\n' "$version"

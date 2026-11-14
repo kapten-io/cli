@@ -1,45 +1,55 @@
 name: Release
 
-# A version tag builds the archives, signs a packslip manifest of them,
-# publishes them as a GitHub release and installs the published release with
-# mise. The tag comes from the "Release a version" workflow, which dispatches
-# this one on it, or from `mise run release`, whose push starts it.
+# "Run workflow" on main releases main's head as the next version, picked
+# from the commit titles since the latest release (scripts/release-next):
+# builds the archives, signs a packslip manifest of them, publishes them as a
+# GitHub release tagged vX.Y.Z, then on npm, and installs the published
+# release with mise and npx.
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release
   cancel-in-progress: false
 
 jobs:
   build:
     name: Build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     env:
       MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
       MISE_YES: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # the release notes list the commits since the previous tag
+          fetch-depth: 0 # the version and notes come from the commits since the latest release
           persist-credentials: false
+
+      - name: Pick the version
+        id: version
+        run: |
+          version="$(./scripts/release-next)"
+          echo "tag=v$version" >>"$GITHUB_OUTPUT"
 
       - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
 
       - run: mise run quality
 
       - name: Build the archives
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          ./scripts/release-build "$GITHUB_REF_NAME"
-          ./scripts/release-notes "$GITHUB_REF_NAME" >dist/notes.md
+          ./scripts/release-build "$TAG"
+          ./scripts/release-notes "$TAG" >dist/notes.md
+          echo "Releasing $TAG" >>"$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -63,7 +73,7 @@ jobs:
       id-token: write # sign with the workflow's identity
       attestations: write # attest the archives' provenance
     steps:
-      # Resources taken from the repository (repo:) are read at the tag
+      # Resources taken from the repository (repo:) are read at the released commit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -77,6 +87,7 @@ jobs:
         id: packslip
         with:
           artifacts: dist/kapten_*.tar.gz dist/kapten_*.zip
+          tag: ${{ needs.build.outputs.tag }}
           bin: kapten
           resources: |
             completion/bash,zsh,fish/kapten=exec:kapten completion {shell}
@@ -91,7 +102,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: packslip
+    needs: [build, packslip]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -107,29 +118,28 @@ jobs:
           name: packslip
           path: dist
 
-      # A draft until every file is uploaded; a rerun replaces the draft's files.
+      # A draft until every file is uploaded; a rerun replaces the draft's
+      # files. Publishing the draft creates the tag on the released commit.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
           set -euo pipefail
-          prerelease=false
-          [[ "$TAG" != *-* ]] || prerelease=true
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
-              --title "Kapten CLI $TAG" --notes-file dist/notes.md --prerelease="$prerelease"
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
+              --title "Kapten CLI $TAG" --notes-file dist/notes.md
           fi
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             dist/kapten_* dist/checksums.txt dist/packslip.sigstore.json
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$prerelease"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 
   # @kapten/cli and its platform packages, from the same archives. Trusted
-  # publishing: npm accepts this workflow in the npm environment (release tags
-  # only) without a token, and records the provenance.
+  # publishing: npm accepts this workflow in the npm environment (main only)
+  # without a token, and records the provenance.
   npm:
     name: npm
-    needs: publish
+    needs: [build, publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: npm
@@ -155,12 +165,10 @@ jobs:
       # the versions already published.
       - name: Publish
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
           set -euo pipefail
           ./scripts/release-npm "$TAG" dist npm-packages
-          channel=latest
-          [[ "$TAG" != *-* ]] || channel=next
           for package in npm-packages/cli-* npm-packages/cli; do
             name="$(jq -r .name "$package/package.json")"
             version="$(jq -r .version "$package/package.json")"
@@ -168,12 +176,12 @@ jobs:
               echo "$name@$version is already published"
               continue
             fi
-            npm publish "$package" --access public --tag "$channel"
+            npm publish "$package" --access public
           done
 
   verify:
     name: Verify
-    needs: [publish, npm]
+    needs: [build, publish, npm]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -190,6 +198,7 @@ jobs:
 
       # Installs the published release as users would: with mise, which
       # verifies the packslip signature and digests, and with npx
-      - run: mise run release:verify -- "$GITHUB_REF_NAME"
+      - run: mise run release:verify -- "$TAG"
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
