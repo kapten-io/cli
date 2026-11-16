@@ -187,3 +187,29 @@ func TestWithHumanOutputDefault(t *testing.T) {
 		})
 	}
 }
+
+func TestStagingStandsForTheStagingContextAndEndpoints(t *testing.T) {
+	opts, rest, err := parseKaptenArgs([]string{"projects", "--staging", "list"})
+	if err != nil || !opts.Staging || !reflect.DeepEqual(rest, []string{"projects", "list"}) {
+		t.Fatalf("parse --staging: %+v %q %v", opts, rest, err)
+	}
+
+	t.Setenv("KAPTEN_CONFIG_DIR", t.TempDir())
+	t.Setenv("KAPTEN_ISSUER_URL", "")
+	t.Setenv("KAPTEN_API_URL", "http://127.0.0.1:9000")
+	var out, errOut bytes.Buffer
+	err = New(&out, &errOut).Run([]string{"kapten", "--staging", "whoami"})
+	if err == nil || !strings.Contains(err.Error(), `"staging"`) {
+		t.Fatalf("whoami --staging: %v", err)
+	}
+	if got := env("KAPTEN_ISSUER_URL", ""); got != stagingIssuerURL {
+		t.Errorf("issuer: %q", got)
+	}
+	if got := env("KAPTEN_API_URL", ""); got != "http://127.0.0.1:9000" {
+		t.Errorf("KAPTEN_API_URL was replaced: %q", got)
+	}
+	err = New(&out, &errOut).Run([]string{"kapten", "--staging", "--context", "other", "whoami"})
+	if err == nil || !strings.Contains(err.Error(), `"other"`) {
+		t.Fatalf("--context with --staging: %v", err)
+	}
+}

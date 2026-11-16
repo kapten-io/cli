@@ -24,6 +24,13 @@ const clientID = "cli_9811a064-0835-43f4-a478-9ff95d92bc28"
 // a new login or server mode at staging or a local stack.
 const defaultIssuerURL = "https://auth.kapten.io"
 const defaultAPIURL = "https://api.kapten.io"
+
+// Kapten's staging, for the hidden --staging option: it stands for
+// --context staging and these endpoints, which KAPTEN_ISSUER_URL and
+// KAPTEN_API_URL still override.
+const stagingIssuerURL = "https://auth-staging.kapten.io"
+const stagingAPIURL = "https://api-staging.kapten.io"
+const stagingContext = "staging"
 const paginatedRecordsFilter = `.body | if type == "object" and has("records") then .records else . end`
 
 type App struct {
@@ -36,6 +43,8 @@ type App struct {
 	warnedFile      bool
 	// contextName is the --context option, which Kapten consumes anywhere.
 	contextName string
+	// staging is the hidden --staging option.
+	staging bool
 	// OpenBrowser overrides the browser launcher for embedding/headless flows.
 	// A nil value uses the operating-system launcher when a browser can open.
 	OpenBrowser func(context.Context, string) error
@@ -63,7 +72,19 @@ func (a *App) RunContext(runCtx context.Context, argv []string) error {
 	if err != nil {
 		return err
 	}
-	a.contextName = opts.Context
+	if opts.Staging {
+		for name, url := range map[string]string{"KAPTEN_ISSUER_URL": stagingIssuerURL, "KAPTEN_API_URL": stagingAPIURL} {
+			if os.Getenv(name) == "" {
+				if err := os.Setenv(name, url); err != nil {
+					return err
+				}
+			}
+		}
+		if opts.Context == "" {
+			opts.Context = stagingContext
+		}
+	}
+	a.contextName, a.staging = opts.Context, opts.Staging
 	if opts.Version && !opts.Help {
 		fmt.Fprintf(a.Out, "kapten %s (commit %s, built %s)\n", a.Version, a.Commit, a.BuildDate)
 		return nil
