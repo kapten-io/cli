@@ -11,6 +11,7 @@ import (
 // (TestEveryResourceGroupHasADescription).
 var groupDescriptions = map[string]string{
 	"applications": "Deploy and run long-running applications",
+	"caches":       "Create and manage caches",
 	"clusters":     "Connect and manage Kubernetes clusters",
 	"components":   "List the components of an environment",
 	"databases":    "Create and manage databases",

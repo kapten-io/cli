@@ -121,6 +121,11 @@ func TestWithPaginatedOutputDefaults(t *testing.T) {
 			want: []string{"projects", "list", "--rsh-filter=body.records.{id,name}"},
 		},
 		{
+			name: "list returned whole keeps its envelope",
+			args: []string{"clusters", "list-networks", "cluster-id"},
+			want: []string{"clusters", "list-networks", "cluster-id"},
+		},
+		{
 			name: "non-paginated command",
 			args: []string{"projects", "get", "project-id"},
 			want: []string{"projects", "get", "project-id"},

@@ -22,48 +22,80 @@ const mcpFrameHeaderLimit = 8 << 10
 type mcpLineReader struct {
 	reader  *bufio.Reader
 	pending *bytes.Reader
+	err     error
 }
 
 func newMCPLineReader(in io.Reader) *mcpLineReader {
 	return &mcpLineReader{reader: bufio.NewReader(in)}
 }
 
+// Read coalesces the frames of messages already buffered: the helper queues at
+// most 64 stdin events, so a client that pipelines requests must not cost one
+// event per message.
 func (r *mcpLineReader) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
+	n := 0
+	for n < len(p) {
+		if r.pending != nil && r.pending.Len() > 0 {
+			m, _ := r.pending.Read(p[n:])
+			n += m
+			continue
+		}
+		if r.err != nil {
+			if n > 0 {
+				return n, nil
+			}
+			return 0, r.err
+		}
+		if n > 0 && !r.lineBuffered() {
+			return n, nil
+		}
+		frame, err := r.nextFrame()
+		if err != nil {
+			r.err = err
+			continue
+		}
+		if frame != nil {
+			r.pending = bytes.NewReader(frame)
+		}
 	}
-	if r.pending != nil && r.pending.Len() > 0 {
-		return r.pending.Read(p)
-	}
+	return n, nil
+}
+
+func (r *mcpLineReader) lineBuffered() bool {
+	buffered, _ := r.reader.Peek(r.reader.Buffered())
+	return bytes.IndexByte(buffered, '\n') >= 0
+}
+
+// nextFrame reads one input line and returns its Content-Length frame, or nil
+// for a blank line.
+func (r *mcpLineReader) nextFrame() ([]byte, error) {
 	var payload []byte
 	for {
 		part, err := r.reader.ReadSlice('\n')
 		if len(part) > mcpInputMessageLimit-len(payload) {
-			return 0, errors.New("MCP input message exceeds the size limit")
+			return nil, errors.New("MCP input message exceeds the size limit")
 		}
 		payload = append(payload, part...)
 		if errors.Is(err, bufio.ErrBufferFull) {
 			continue
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
-			return 0, errors.New("read MCP input failed")
+			return nil, errors.New("read MCP input failed")
 		}
 		if len(payload) == 0 && errors.Is(err, io.EOF) {
-			return 0, io.EOF
+			return nil, io.EOF
 		}
 		payload = bytes.TrimSpace(payload)
 		if len(payload) == 0 {
-			payload = nil
-			continue
+			return nil, nil
 		}
 		if !json.Valid(payload) || payload[0] != '{' {
-			return 0, errors.New("MCP stdin requires newline-delimited JSON-RPC objects")
+			return nil, errors.New("MCP stdin requires newline-delimited JSON-RPC objects")
 		}
 		var frame bytes.Buffer
 		fmt.Fprintf(&frame, "Content-Length: %d\r\n\r\n", len(payload))
 		frame.Write(payload)
-		r.pending = bytes.NewReader(frame.Bytes())
-		return r.pending.Read(p)
+		return frame.Bytes(), nil
 	}
 }
 

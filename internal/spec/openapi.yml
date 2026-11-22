@@ -27,6 +27,8 @@ tags:
     description: Long-running applications, built from GitHub or deployed from an image
   - name: database
     description: PostgreSQL, MySQL, MongoDB and Redis databases
+  - name: cache
+    description: Cache management
   - name: component
     description: Every component of an environment, and their logs
   - name: pipeline
@@ -265,6 +267,109 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/cluster'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/networks:
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+    get:
+      summary: List the networks of a cluster
+      description: 'Returns the networks application ports can be served on: the public network, the managed networks, and the Gateways labelled `kapten.io/network` in the cluster.'
+      operationId: listClusterNetworks
+      x-cli-name: list-networks
+      tags:
+        - clusters
+        - cluster
+      responses:
+        '200':
+          description: Networks retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cluster_network_list'
+        default:
+          $ref: '#/components/responses/error_response'
+    post:
+      summary: Add a managed network to a cluster
+      description: 'Adds a network served by its own Gateway, whose Envoy Service Kapten creates with the given type, load balancer class and annotations. Use it to serve applications on a private network, such as a Tailscale tailnet (`loadBalancerClass: tailscale`) or a NetBird network (`CLUSTER_IP` with the `netbird.io/expose` annotation).'
+      operationId: createClusterNetwork
+      x-cli-name: create-network
+      tags:
+        - clusters
+        - cluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/create_cluster_network'
+      responses:
+        '201':
+          description: Network created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cluster_network'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/networks/{network_id}:
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+      - $ref: '#/components/parameters/network_id'
+    patch:
+      summary: Update a managed network
+      description: Replaces the Envoy Service settings of a managed network. The name never changes, since it is part of the network's hostnames.
+      operationId: updateClusterNetwork
+      x-cli-name: update-network
+      tags:
+        - clusters
+        - cluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/cluster_network_service'
+      responses:
+        '200':
+          description: Network updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cluster_network'
+        default:
+          $ref: '#/components/responses/error_response'
+    delete:
+      summary: Delete a managed network
+      description: Deletes a managed network. The public network cannot be deleted, and an external network leaves when its Gateway loses the `kapten.io/network` label.
+      operationId: deleteClusterNetwork
+      x-cli-name: delete-network
+      tags:
+        - clusters
+        - cluster
+      responses:
+        '204':
+          description: Network deleted
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/registry:
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+    get:
+      summary: Get the cluster registry health
+      description: Reads from the cluster whether its built-in registry and the registry proxy on every node are ready now.
+      operationId: getClusterRegistryHealth
+      x-cli-name: registry-health
+      tags:
+        - clusters
+        - cluster
+      responses:
+        '200':
+          description: Registry health read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cluster_registry_health'
         default:
           $ref: '#/components/responses/error_response'
   /container-registry:
@@ -1280,6 +1385,28 @@ paths:
                 $ref: '#/components/schemas/logs_query_response'
         default:
           $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/component/{component_id}/metrics:
+    get:
+      summary: Query component metrics
+      description: Returns the component's metric panels over a time range, read on demand from the metrics store of the component's cluster through Kapten's agent. The panels depend on the component's kind.
+      operationId: queryComponentMetrics
+      x-cli-ignore: true
+      tags:
+        - component
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/component_id'
+        - $ref: '#/components/parameters/metrics_range'
+      responses:
+        '200':
+          description: Component metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/component_metrics_response'
+        default:
+          $ref: '#/components/responses/error_response'
   /project/{project_id}/environment/{environment_id}/pipelines:
     get:
       summary: List pipelines
@@ -2080,80 +2207,27 @@ paths:
                 $ref: '#/components/schemas/database'
         default:
           $ref: '#/components/responses/error_response'
-  /project/{project_id}/environment/{environment_id}/database/redis:
-    post:
-      summary: Create a Redis database
-      description: Creates a Redis database in an environment.
-      operationId: createRedisDatabase
-      x-cli-name: create-redis
-      tags:
-        - databases
-        - database
-      parameters:
-        - $ref: '#/components/parameters/project_id'
-        - $ref: '#/components/parameters/environment_id'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/create_redis_database'
-      responses:
-        '200':
-          description: Redis database created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/database'
-        default:
-          $ref: '#/components/responses/error_response'
-  /project/{project_id}/environment/{environment_id}/database/redis/{database_id}:
+  /project/{project_id}/environment/{environment_id}/database/engines:
     get:
-      summary: Get a Redis database
-      description: Returns a Redis database.
-      operationId: getRedisDatabase
-      x-cli-name: get-redis
+      summary: List database engines
+      description: Returns the engines databases can run, their versions, and the backups and restores each offers in this environment.
+      operationId: listDatabaseEngines
+      x-cli-name: list-engines
       tags:
         - databases
         - database
       parameters:
         - $ref: '#/components/parameters/project_id'
         - $ref: '#/components/parameters/environment_id'
-        - $ref: '#/components/parameters/database_id'
       responses:
         '200':
-          description: Redis database retrieved successfully
+          description: Database engines
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/database'
-        default:
-          $ref: '#/components/responses/error_response'
-    put:
-      summary: Update a Redis database
-      description: Updates a Redis database's settings. Its provisioning and `database_name` cannot change.
-      operationId: updateRedisDatabase
-      x-cli-name: update-redis
-      tags:
-        - databases
-        - database
-      parameters:
-        - $ref: '#/components/parameters/project_id'
-        - $ref: '#/components/parameters/environment_id'
-        - $ref: '#/components/parameters/database_id'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/update_database'
-      responses:
-        '200':
-          description: Redis database updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/database'
+                type: array
+                items:
+                  $ref: '#/components/schemas/database_engine'
         default:
           $ref: '#/components/responses/error_response'
   /project/{project_id}/environment/{environment_id}/database/{database_id}:
@@ -2194,6 +2268,153 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/component_run'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/database/{database_id}/backups:
+    get:
+      summary: List database backups
+      description: Returns the backup timeline and the restore window of a database on an operator.
+      operationId: listDatabaseBackups
+      x-cli-name: list-backups
+      tags:
+        - databases
+        - database
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/database_id'
+      responses:
+        '200':
+          description: Backup timeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/database_backups'
+        default:
+          $ref: '#/components/responses/error_response'
+    post:
+      summary: Back up a database
+      description: Takes a full backup now.
+      operationId: createDatabaseBackup
+      x-cli-name: create-backup
+      tags:
+        - databases
+        - database
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/database_id'
+      responses:
+        '200':
+          description: Backup requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/database_backups'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/database/{database_id}/restore:
+    post:
+      summary: Restore a database
+      description: Restores into a new database next to this one, or rolls this database back in place.
+      operationId: restoreDatabase
+      x-cli-name: restore
+      tags:
+        - databases
+        - database
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/database_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/database_restore_request'
+      responses:
+        '200':
+          description: The database being restored (the new one, or this one)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/database'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/database/{database_id}/maintenance:
+    get:
+      summary: Get database maintenance
+      description: Returns the running version, the pending security update, the possible upgrades and the maintenance window.
+      operationId: getDatabaseMaintenance
+      x-cli-name: get-maintenance
+      tags:
+        - databases
+        - database
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/database_id'
+      responses:
+        '200':
+          description: Maintenance state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/database_maintenance'
+        default:
+          $ref: '#/components/responses/error_response'
+    put:
+      summary: Update the maintenance window
+      operationId: updateDatabaseMaintenanceWindow
+      x-cli-name: update-maintenance
+      tags:
+        - databases
+        - database
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/database_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/database_maintenance_window'
+      responses:
+        '200':
+          description: Maintenance state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/database_maintenance'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/database/{database_id}/upgrade:
+    post:
+      summary: Upgrade a database
+      description: Applies the pending patch release now, or upgrades the database to another version line.
+      operationId: upgradeDatabase
+      x-cli-name: upgrade
+      tags:
+        - databases
+        - database
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/database_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/database_upgrade_request'
+      responses:
+        '200':
+          description: Upgrade started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/database_upgrade_response'
         default:
           $ref: '#/components/responses/error_response'
   /project/{project_id}/environment/{environment_id}/database/{database_id}/runs:
@@ -2306,6 +2527,337 @@ paths:
       responses:
         '200':
           description: Database run logs retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/component_run_logs_response'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache:
+    post:
+      summary: Create a cache
+      description: Creates a Valkey cache in the environment's cluster.
+      operationId: createCache
+      x-cli-name: create
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/create_cache'
+      responses:
+        '200':
+          description: Cache created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cache'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/engines:
+    get:
+      summary: List cache engines
+      description: Returns the engines caches can run and their version lines.
+      operationId: listCacheEngines
+      x-cli-name: list-engines
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+      responses:
+        '200':
+          description: Cache engines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/cache_engine'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/{cache_id}:
+    get:
+      summary: Get a cache
+      operationId: getCache
+      x-cli-name: get
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+      responses:
+        '200':
+          description: Cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cache'
+        default:
+          $ref: '#/components/responses/error_response'
+    patch:
+      summary: Update a cache
+      description: Changes a cache's name, description, size or high availability. Deploy the cache to apply the change.
+      operationId: updateCache
+      x-cli-name: update
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/update_cache'
+      responses:
+        '200':
+          description: Cache updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cache'
+        default:
+          $ref: '#/components/responses/error_response'
+    delete:
+      summary: Delete a cache
+      description: Removes a cache, its data, its secret and its variables.
+      operationId: deleteCache
+      x-cli-name: delete
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+      responses:
+        '204':
+          description: Cache deleted
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/{cache_id}/deploy:
+    post:
+      summary: Deploy a cache
+      description: Triggers a deployment for the specified cache.
+      operationId: deployCache
+      x-cli-name: deploy
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+      responses:
+        '200':
+          description: Cache deployment run queued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/component_run'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/{cache_id}/maintenance:
+    get:
+      summary: Get cache maintenance
+      description: Returns the running version, the pending patch release, the possible upgrades and the maintenance window.
+      operationId: getCacheMaintenance
+      x-cli-name: get-maintenance
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+      responses:
+        '200':
+          description: Maintenance state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cache_maintenance'
+        default:
+          $ref: '#/components/responses/error_response'
+    put:
+      summary: Update the maintenance window
+      operationId: updateCacheMaintenanceWindow
+      x-cli-name: update-maintenance
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/cache_maintenance_window'
+      responses:
+        '200':
+          description: Maintenance state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cache_maintenance'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/{cache_id}/upgrade:
+    post:
+      summary: Upgrade a cache
+      description: Applies the pending patch release now, or upgrades the cache to another version line.
+      operationId: upgradeCache
+      x-cli-name: upgrade
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/cache_upgrade_request'
+      responses:
+        '200':
+          description: Upgrade started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cache_upgrade_response'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/{cache_id}/runs:
+    get:
+      summary: List cache runs
+      description: Fetches a paginated component-run history for the specified cache.
+      operationId: listCacheRuns
+      x-cli-name: list-runs
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+        - $ref: '#/components/parameters/component_run_action'
+        - $ref: '#/components/parameters/component_run_trigger'
+        - $ref: '#/components/parameters/component_run_status'
+        - $ref: '#/components/parameters/component_run_created_after'
+        - $ref: '#/components/parameters/component_run_created_before'
+        - $ref: '#/components/parameters/pagination_limit'
+        - $ref: '#/components/parameters/pagination_number'
+      responses:
+        '200':
+          description: Cache runs retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/paginated_response'
+                  - type: object
+                    properties:
+                      records:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/component_run'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/{cache_id}/runs/{component_run_id}:
+    get:
+      summary: Get cache run
+      description: Fetches a component run for the specified cache.
+      operationId: getCacheRun
+      x-cli-name: get-run
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+        - $ref: '#/components/parameters/component_run_id'
+      responses:
+        '200':
+          description: Cache run retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/component_run'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/cache/{cache_id}/runs/{component_run_id}/logs:
+    post:
+      summary: Query cache run logs
+      description: |
+        Queries run-scoped Component Run control-plane and Agent logs for the specified cache through the connected cluster agent.
+
+        Component Run Logs explain control-plane and agent execution lifecycle events for one Component Run. They are not workload pod logs; use the existing component logs endpoint for cache workload output.
+
+        When `from` or `to` is omitted, Kapten derives a default time window from the Component Run timestamps. The logs are read from the configured log backend and follow log backend retention. No backfill is performed, so old runs created before run-scoped instrumentation may return an empty successful response.
+      operationId: queryCacheRunLogs
+      x-cli-name: query-run-logs
+      tags:
+        - caches
+        - cache
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/cache_id'
+        - $ref: '#/components/parameters/component_run_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/component_run_logs_request'
+            examples:
+              timelineView:
+                summary: Timeline only
+                value:
+                  view: timeline
+                  limit: 200
+                  source:
+                    - control_plane
+                    - agent
+              rawView:
+                summary: Raw run-scoped records only
+                value:
+                  view: raw
+                  levels:
+                    - info
+                    - warn
+                    - error
+                  text: helm
+              bothView:
+                summary: Timeline and raw records
+                value:
+                  view: both
+                  from: '2026-07-03T10:00:00Z'
+                  to: '2026-07-03T10:30:00Z'
+                  limit: 500
+      responses:
+        '200':
+          description: Cache run logs retrieved successfully
           content:
             application/json:
               schema:
@@ -2470,6 +3022,97 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/component_run'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/application/{application_id}/domains:
+    get:
+      summary: List the custom domains of an application
+      description: 'Returns the application''s custom domains and the DNS record each one needs: a CNAME to the application''s cluster.'
+      operationId: listApplicationDomains
+      x-cli-name: list-domains
+      tags:
+        - applications
+        - application
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/application_id'
+      responses:
+        '200':
+          description: Custom domains retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/application_domain_list'
+        default:
+          $ref: '#/components/responses/error_response'
+    post:
+      summary: Add a custom domain to an application
+      description: Adds a custom domain to a public port of the application. Kapten looks for its DNS record, a CNAME to the application's cluster, and verifies the domain once the record exists. The application serves a verified domain over HTTPS from its next deployment. Apex and wildcard domains are not supported.
+      operationId: addApplicationDomain
+      x-cli-name: add-domain
+      tags:
+        - applications
+        - application
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/application_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/add_application_domain'
+      responses:
+        '201':
+          description: Custom domain added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/application_domain'
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/application/{application_id}/domains/{domain_id}:
+    delete:
+      summary: Remove a custom domain from an application
+      description: Removes a custom domain. The application stops serving it at its next deployment.
+      operationId: removeApplicationDomain
+      x-cli-name: remove-domain
+      tags:
+        - applications
+        - application
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/application_id'
+        - $ref: '#/components/parameters/domain_id'
+      responses:
+        '204':
+          description: Custom domain removed
+        default:
+          $ref: '#/components/responses/error_response'
+  /project/{project_id}/environment/{environment_id}/application/{application_id}/domains/{domain_id}/verify:
+    post:
+      summary: Verify a custom domain again
+      description: Looks for the DNS record of a domain that is not verified yet, starting the checks over. Use it once the record exists to verify the domain without waiting for the next check.
+      operationId: verifyApplicationDomain
+      x-cli-name: verify-domain
+      tags:
+        - applications
+        - application
+      parameters:
+        - $ref: '#/components/parameters/project_id'
+        - $ref: '#/components/parameters/environment_id'
+        - $ref: '#/components/parameters/application_id'
+        - $ref: '#/components/parameters/domain_id'
+      responses:
+        '200':
+          description: Verification started over
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/application_domain'
         default:
           $ref: '#/components/responses/error_response'
   /project/{project_id}/environment/{environment_id}/application/{application_id}/runs:
@@ -2893,6 +3536,13 @@ components:
       description: The unique identifier of the cluster
       schema:
         $ref: '#/components/schemas/uuid'
+    network_id:
+      name: network_id
+      in: path
+      required: true
+      description: The unique identifier of the cluster network
+      schema:
+        $ref: '#/components/schemas/uuid'
     container_registry_id:
       name: container_registry_id
       in: path
@@ -2949,11 +3599,25 @@ components:
       description: Unique identifier of the database.
       schema:
         $ref: '#/components/schemas/uuid'
+    cache_id:
+      name: cache_id
+      in: path
+      required: true
+      description: Unique identifier of the cache.
+      schema:
+        $ref: '#/components/schemas/uuid'
     application_id:
       name: application_id
       in: path
       required: true
       description: The unique identifier for the application
+      schema:
+        $ref: '#/components/schemas/uuid'
+    domain_id:
+      name: domain_id
+      in: path
+      required: true
+      description: The unique identifier for the custom domain
       schema:
         $ref: '#/components/schemas/uuid'
     variable_id:
@@ -3003,6 +3667,7 @@ components:
       in: query
       description: Filter component runs by action.
       required: false
+      x-go-name: ComponentRunActionFilter
       schema:
         type: string
         enum:
@@ -3012,6 +3677,7 @@ components:
       in: query
       description: Filter component runs by trigger source.
       required: false
+      x-go-name: ComponentRunTriggerFilter
       schema:
         type: string
         enum:
@@ -3126,6 +3792,13 @@ components:
         minimum: 1
         maximum: 100
         default: 50
+    metrics_range:
+      name: range
+      in: query
+      required: false
+      description: How far back the metrics go. Defaults to 1h.
+      schema:
+        $ref: '#/components/schemas/metrics_range'
     job_id:
       name: job_id
       in: path
@@ -3179,6 +3852,9 @@ components:
         - created_at
         - update_at
         - deleted_at
+        - domain
+        - gateway_addresses
+        - builtin_registry
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -3191,6 +3867,9 @@ components:
           $ref: '#/components/schemas/cloud_provider'
         state:
           $ref: '#/components/schemas/cluster_state'
+        builtin_registry:
+          type: boolean
+          description: Whether the cluster runs its built-in container registry, which receives the images built from GitHub sources. On by default.
         created_at:
           type: string
           format: date-time
@@ -3204,14 +3883,27 @@ components:
           format: date-time
           nullable: true
           description: The timestamp when the cluster was deleted updated.
+        domain:
+          type: string
+          nullable: true
+          description: The DNS name under which applications of this cluster get their default domain (`<application>.<domain>`). Null when the Engine has no apps domain configured.
+        gateway_addresses:
+          type: array
+          items:
+            type: string
+          description: The public addresses of the cluster's shared gateway, as last reported by the agent. Empty until the gateway gets a public address.
       example:
         cloud_provider: aws
         created_at: '2025-06-10T22:16:02Z'
         deleted_at: '2025-06-10T22:16:02Z'
+        domain: c3f9a1b2c4d.kaptn.cloud
+        gateway_addresses:
+          - 203.0.113.10
         id: 7362e0d0-72ed-c77b-5c42-f9af9d52fd5f
         name: zKC
         organization_id: 7a60f26d-0106-02f5-ccf5-98b7c4cdc513
         state: INITIALIZED
+        builtin_registry: true
         update_at: '2025-06-10T22:16:02Z'
     cluster_state:
       type: string
@@ -3235,6 +3927,21 @@ components:
         - RESTART_QUEUED
         - RESTART_ERROR
       description: The current lifecycle state of the cluster.
+    cluster_registry_health:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - READY
+            - NOT_READY
+            - UNKNOWN
+          description: READY when the registry and the proxy on every node are ready; UNKNOWN when the cluster could not be reached.
+        reason:
+          type: string
+          description: Why the registry is not ready, when it is not.
     create_cluster_dto:
       type: object
       properties:
@@ -3268,10 +3975,139 @@ components:
         kube_config:
           type: string
           format: byte
-          description: The base64-encoded Kubernetes configuration for the cluster.
+          description: The base64-encoded Kubernetes configuration for the cluster. Replacing it syncs the cluster so that its agent uses the new configuration, and is refused while a sync is in progress.
+        builtin_registry:
+          type: boolean
+          description: Turns the cluster's built-in container registry on or off, which syncs the cluster. Turning it off is refused while applications of the cluster use it or a sync is in progress, and keeps its stored images for when it is turned on again.
       example:
         name: my-production-cluster
         kube_config: YXBpVmVyc2lvbjogdjEKY2x1c3RlcnM6Ci0gY2x1c3RlcjoKICAgIGNlcnRpZmljYXRlLWF1dGhvcml0eS1kYXRhOiBMUzB0TFMxQ1JVZEpUaUJEUlZKVVNVWkpRMEZVUlMwdExTMHQ=
+    cluster_network:
+      type: object
+      required:
+        - id
+        - cluster_id
+        - name
+        - kind
+        - service_type
+        - load_balancer_class
+        - annotations
+        - addresses
+        - status
+        - status_reason
+        - supported_features
+        - reported_at
+        - gateway_namespace
+        - gateway_name
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/uuid'
+        cluster_id:
+          $ref: '#/components/schemas/uuid'
+        name:
+          type: string
+          description: The network's name, a DNS label that appears in its hostnames.
+        kind:
+          $ref: '#/components/schemas/cluster_network_kind'
+        service_type:
+          $ref: '#/components/schemas/cluster_network_service_type'
+        load_balancer_class:
+          type: string
+          description: The Envoy Service's load balancer class, for a managed network.
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          description: The Envoy Service's annotations, for a managed network.
+        addresses:
+          type: array
+          items:
+            type: string
+          description: The addresses of the network's Gateway, as the agent last reported them.
+        status:
+          $ref: '#/components/schemas/cluster_network_status'
+        status_reason:
+          type: string
+          description: Why the network is not ready. Empty once ready.
+        supported_features:
+          type: array
+          items:
+            type: string
+          description: The Gateway API features of the network's GatewayClass, such as `HTTPRoute`, as it reports them.
+        reported_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the agent last reported the network.
+        gateway_namespace:
+          type: string
+          description: The namespace of the network's Gateway; empty while an external network has none.
+        gateway_name:
+          type: string
+          description: The name of the network's Gateway, which application routes attach to.
+        created_at:
+          type: string
+          format: date-time
+    cluster_network_list:
+      type: object
+      required:
+        - networks
+      properties:
+        networks:
+          type: array
+          items:
+            $ref: '#/components/schemas/cluster_network'
+    cluster_network_kind:
+      type: string
+      description: 'Who creates the network''s Gateway: `PUBLIC` is the cluster''s shared Gateway on the internet, `MANAGED` a Gateway Kapten creates for the network, `EXTERNAL` a Gateway the customer runs and labels `kapten.io/network`.'
+      enum:
+        - PUBLIC
+        - MANAGED
+        - EXTERNAL
+    cluster_network_status:
+      type: string
+      description: '`PENDING` until the cluster''s agent reports the Gateway, `READY` once it is programmed and has an address, `UNAVAILABLE` when it is missing or not programmed.'
+      enum:
+        - PENDING
+        - READY
+        - UNAVAILABLE
+    cluster_network_service:
+      type: object
+      description: The Envoy Service in front of a managed network's Gateway.
+      properties:
+        service_type:
+          $ref: '#/components/schemas/cluster_network_service_type'
+        load_balancer_class:
+          type: string
+          maxLength: 253
+          description: The `loadBalancerClass` of the Service, such as `tailscale`. Only with the `LOAD_BALANCER` type. Empty uses the cluster's default load balancer.
+        annotations:
+          type: object
+          maxProperties: 32
+          additionalProperties:
+            type: string
+            maxLength: 4096
+          description: 'Annotations of the Service, such as `netbird.io/expose: "true"` or a cloud provider''s internal load balancer annotation.'
+    cluster_network_service_type:
+      type: string
+      description: 'The type of the Envoy Service: `LOAD_BALANCER` asks the cluster for a load balancer, the default one or the one named by `load_balancer_class`; `CLUSTER_IP` keeps the Service inside the cluster, for an operator that exposes it, such as NetBird''s.'
+      enum:
+        - LOAD_BALANCER
+        - CLUSTER_IP
+      default: LOAD_BALANCER
+    create_cluster_network:
+      allOf:
+        - type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+              maxLength: 32
+              pattern: ^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$
+              description: The network's name, a DNS label that appears in its hostnames, such as `tailnet`. It never changes. `public` is reserved.
+        - $ref: '#/components/schemas/cluster_network_service'
     error:
       type: object
       description: An error response object containing a status code and descriptive message
@@ -3395,6 +4231,103 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/logs_query_entry'
+    metrics_range:
+      type: string
+      description: A time range ending now.
+      enum:
+        - 1h
+        - 6h
+        - 24h
+        - 7d
+    metrics_unit:
+      type: string
+      description: The unit of a panel's values.
+      enum:
+        - cores
+        - bytes
+        - bytes_per_second
+        - count
+        - per_second
+        - ratio
+        - seconds
+    metrics_point:
+      type: object
+      required:
+        - t
+        - v
+      properties:
+        t:
+          type: integer
+          format: int64
+          description: Unix time in seconds.
+        v:
+          type: number
+          format: double
+    metrics_series:
+      type: object
+      required:
+        - name
+        - points
+      properties:
+        name:
+          type: string
+          description: The series label shown in the legend, such as "Received".
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/metrics_point'
+    metrics_panel:
+      type: object
+      required:
+        - id
+        - title
+        - unit
+        - series
+      properties:
+        id:
+          type: string
+          description: Stable identifier of the panel, such as "memory".
+        title:
+          type: string
+        unit:
+          $ref: '#/components/schemas/metrics_unit'
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/metrics_series'
+        limit:
+          type: number
+          format: double
+          description: The component's limit for this panel, such as its memory limit, when it has one.
+        limit_points:
+          type: array
+          items:
+            $ref: '#/components/schemas/metrics_point'
+          description: The limit over the range, so usage is compared with the limit that applied at the time. Present when limit is.
+    component_metrics_response:
+      type: object
+      required:
+        - range
+        - from
+        - to
+        - step_seconds
+        - panels
+      properties:
+        range:
+          $ref: '#/components/schemas/metrics_range'
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        step_seconds:
+          type: integer
+          format: int32
+        panels:
+          type: array
+          items:
+            $ref: '#/components/schemas/metrics_panel'
     component_run_logs_request:
       type: object
       description: Constrained Component Run Logs request. Does not accept arbitrary LogsQL; clients can only select a view, bounded time range, limit, levels, event sources, and message text.
@@ -3464,6 +4397,7 @@ components:
         - logs_backend
         - default_time_range_applied
         - details_available
+        - pipeline_context
       properties:
         component_run_id:
           $ref: '#/components/schemas/uuid'
@@ -3492,6 +4426,7 @@ components:
         - step
         - phase
         - message
+        - duration_ms
       properties:
         time:
           type: string
@@ -3558,6 +4493,7 @@ components:
         - configuration
         - created_at
         - updated_at
+        - deleted_at
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -3732,6 +4668,10 @@ components:
       required:
         - outcome
         - return_target
+        - installation_id
+        - kapplication_id
+        - project_id
+        - environment_id
       properties:
         outcome:
           type: string
@@ -3775,6 +4715,8 @@ components:
         - status
         - installed_at
         - last_synchronized_at
+        - suspended_at
+        - deleted_at
       properties:
         id:
           type: string
@@ -3880,6 +4822,7 @@ components:
         - page
         - per_page
         - total_count
+        - next_page
       properties:
         records:
           type: array
@@ -3920,6 +4863,7 @@ components:
         - records
         - page
         - per_page
+        - next_page
       properties:
         records:
           type: array
@@ -4158,6 +5102,7 @@ components:
             - ram_limit_in_mib
             - source
             - healthchecks
+            - default_port
           properties:
             cpu_limit_in_milli:
               type: string
@@ -4598,14 +5543,99 @@ components:
           minimum: 1
           maximum: 65535
           description: Listening port inside the application.
-        external_port:
-          type: integer
-          minimum: 1
-          maximum: 65535
+        public:
+          type: boolean
+          default: false
+          description: Whether the port is reachable from the internet over HTTPS at its default URL. Only HTTP and GRPC ports can be public.
+        url:
+          type: string
           nullable: true
-          description: Optional exposed port, persisted for future exposure features.
+          readOnly: true
+          description: The default URL of a public port, `https://<application>-<id>.<cluster domain>`. Null for a private port, or when the cluster has no domain.
         protocol:
           $ref: '#/components/schemas/application_protocol'
+        networks:
+          type: array
+          description: The cluster's private networks that serve the port over HTTPS, by network name. The public network is chosen with `public` instead. Only HTTP and GRPC ports can be served on a network. Left out on an existing port, the port keeps its networks; an empty list removes them.
+          items:
+            type: string
+        network_urls:
+          type: array
+          readOnly: true
+          description: The URL of the port on each of its networks, `https://<application>-<id>.<network>.<cluster label>.priv.<apps domain>`. A network without a URL yet is left out.
+          items:
+            $ref: '#/components/schemas/application_port_network_url'
+    application_domain:
+      type: object
+      required:
+        - id
+        - hostname
+        - port_id
+        - status
+        - status_reason
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/uuid'
+        hostname:
+          type: string
+          description: The domain.
+        port_id:
+          allOf:
+            - $ref: '#/components/schemas/uuid'
+          description: The public port the domain routes to.
+        status:
+          $ref: '#/components/schemas/application_domain_status'
+        status_reason:
+          type: string
+          description: Why the domain is not verified yet, or why it failed. Empty once verified.
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When Kapten saw the DNS record point at the cluster.
+        checked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When Kapten last looked for the DNS record.
+        created_at:
+          type: string
+          format: date-time
+    application_domain_list:
+      type: object
+      required:
+        - domains
+        - target
+      properties:
+        target:
+          type: string
+          nullable: true
+          description: 'The value of the CNAME record each domain needs, the application''s cluster name. Null while the cluster has no domain: custom domains cannot be verified then.'
+        domains:
+          type: array
+          items:
+            $ref: '#/components/schemas/application_domain'
+    application_domain_status:
+      type: string
+      enum:
+        - PENDING_DNS
+        - VERIFIED
+        - ERROR
+      description: 'PENDING_DNS: Kapten is looking for the DNS record. VERIFIED: the record points at the cluster; the application serves the domain from its next deployment. ERROR: the domain cannot be verified, see `status_reason`.'
+    add_application_domain:
+      type: object
+      required:
+        - hostname
+      properties:
+        hostname:
+          type: string
+          maxLength: 253
+          description: The domain, such as `www.example.com`. Apex and wildcard domains are not supported, nor domains under Kapten's own.
+        port_id:
+          allOf:
+            - $ref: '#/components/schemas/uuid'
+          description: The public port the domain routes to. Defaults to the default port, or else the first public port.
     application_storage:
       type: object
       required:
@@ -4631,7 +5661,7 @@ components:
           description: Kubernetes storage class name.
     application_protocol:
       type: string
-      description: Application port protocol.
+      description: Application port protocol. HTTP serves HTTP/1.1, websockets included; GRPC serves HTTP/2 without TLS (h2c) to the container, for gRPC.
       enum:
         - HTTP
         - GRPC
@@ -4740,6 +5770,9 @@ components:
               minimum: 60
               maximum: 7200
               default: 3600
+        build_registry_id:
+          description: Organization container registry that builds push to. Omitted, builds push to the built-in registry of the application's cluster.
+          $ref: '#/components/schemas/uuid'
     application_github_source:
       type: object
       description: The GitHub source of an application, with the repository details Kapten read from GitHub.
@@ -4843,6 +5876,9 @@ components:
               type: integer
               minimum: 60
               maximum: 7200
+        build_registry_id:
+          description: Organization container registry that builds push to. Omitted, builds push to the built-in registry of the application's cluster.
+          $ref: '#/components/schemas/uuid'
     database_type:
       type: string
       description: Database engine type.
@@ -4850,7 +5886,6 @@ components:
         - POSTGRESQL
         - MYSQL
         - MONGODB
-        - REDIS
     database_provisioning:
       type: string
       description: Database provisioning strategy.
@@ -4902,6 +5937,7 @@ components:
         - created_at
         - updated_at
         - resource_state
+        - deleted_at
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5092,15 +6128,284 @@ components:
         mapping:
           IN_CLUSTER: '#/components/schemas/create_mongodb_in_cluster_database'
           MANAGED: '#/components/schemas/create_mongodb_managed_database'
-    create_redis_database:
-      oneOf:
-        - $ref: '#/components/schemas/create_redis_in_cluster_database'
-        - $ref: '#/components/schemas/create_redis_managed_database'
-      discriminator:
-        propertyName: provisioning
-        mapping:
-          IN_CLUSTER: '#/components/schemas/create_redis_in_cluster_database'
-          MANAGED: '#/components/schemas/create_redis_managed_database'
+    cache:
+      type: object
+      required:
+        - id
+        - organization_id
+        - project_id
+        - cluster_id
+        - environment_id
+        - s_id
+        - name
+        - engine
+        - version
+        - patch_version
+        - mode
+        - high_availability
+        - memory_mib
+        - cpu_milli
+        - connection
+        - maintenance_window
+        - created_at
+        - updated_at
+        - resource_state
+      properties:
+        id:
+          $ref: '#/components/schemas/uuid'
+        organization_id:
+          $ref: '#/components/schemas/uuid'
+        project_id:
+          $ref: '#/components/schemas/uuid'
+        cluster_id:
+          $ref: '#/components/schemas/uuid'
+        environment_id:
+          $ref: '#/components/schemas/uuid'
+        s_id:
+          type: string
+          description: Short identifier for the cache.
+        name:
+          type: string
+          description: Name of the cache.
+        description:
+          type: string
+          description: Optional cache description.
+        engine:
+          type: string
+          description: Cache engine, currently always Valkey.
+        version:
+          type: string
+          description: Version line, such as 9.0.
+        patch_version:
+          type: string
+          description: Release the cache runs, such as 9.0.7.
+        mode:
+          $ref: '#/components/schemas/cache_mode'
+        high_availability:
+          type: boolean
+          description: Whether a replica takes over when the primary fails.
+        memory_mib:
+          type: integer
+          format: int64
+          description: Memory the cache may use for keys, in MiB.
+        cpu_milli:
+          type: integer
+          format: int64
+          description: CPU reserved for each node, in thousandths of a core.
+        disk_size_gib:
+          type: integer
+          format: int64
+          description: Size of the volume of a persistent cache, in GiB.
+        maintenance_window:
+          $ref: '#/components/schemas/cache_maintenance_window'
+        connection:
+          $ref: '#/components/schemas/cache_connection'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_run_id:
+          $ref: '#/components/schemas/uuid'
+          nullable: true
+          description: Last component run identifier.
+        last_run_status:
+          $ref: '#/components/schemas/component_deployment_state'
+          nullable: true
+          description: Last component run status for the cache.
+        resource_state:
+          $ref: '#/components/schemas/component_resource_state'
+    create_cache:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: \S
+          description: Name of the cache, unique in its environment.
+        description:
+          type: string
+        version:
+          type: string
+          description: Version line, such as 9.0. The newest line when omitted.
+        mode:
+          $ref: '#/components/schemas/cache_mode'
+        high_availability:
+          type: boolean
+          description: Run a replica that takes over when the primary fails.
+        memory_mib:
+          type: integer
+          format: int64
+          minimum: 64
+          description: Memory the cache may use for keys, in MiB. 256 when omitted.
+        cpu_milli:
+          type: integer
+          format: int64
+          minimum: 0
+          description: CPU reserved for each node, in thousandths of a core. 250 when omitted.
+        disk_size_gib:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Volume size of a persistent cache, in GiB, at least twice the memory.
+    update_cache:
+      type: object
+      description: The fields of a cache that can change. The mode and version line cannot.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: \S
+        description:
+          type: string
+        high_availability:
+          type: boolean
+        memory_mib:
+          type: integer
+          format: int64
+          minimum: 64
+        cpu_milli:
+          type: integer
+          format: int64
+          minimum: 0
+        disk_size_gib:
+          type: integer
+          format: int64
+          minimum: 0
+          description: New volume size of a persistent cache; a volume can only grow.
+    cache_mode:
+      type: string
+      description: |
+        How a cache treats its data. `cache` keeps keys in memory only and evicts the least recently used keys when memory is full. `persistent` writes every change to an append-only file on a volume and refuses writes when memory is full. The mode is chosen at creation and cannot change.
+      enum:
+        - cache
+        - persistent
+    cache_engine:
+      type: object
+      description: An engine caches can run.
+      required:
+        - display_name
+        - versions
+        - default_version
+      properties:
+        display_name:
+          type: string
+        versions:
+          type: array
+          description: Version lines that can be created, oldest first.
+          items:
+            type: string
+        default_version:
+          type: string
+          description: Version line a new cache runs when none is chosen.
+    cache_maintenance_window:
+      type: object
+      description: Weekly window in which Kapten may restart the cache to apply patch releases.
+      required:
+        - day_of_week
+        - start_hour
+        - duration_hours
+        - timezone
+        - auto_security_updates
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: Day of the week, 0 is Sunday.
+        start_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        duration_hours:
+          type: integer
+          minimum: 1
+          maximum: 8
+        timezone:
+          type: string
+          description: IANA timezone of the window, such as Europe/Paris.
+        auto_security_updates:
+          type: boolean
+          description: Apply the latest patch release of the current version line in the window.
+    cache_connection:
+      type: object
+      description: Where applications reach a cache inside its cluster. The password is a secret variable of the cache.
+      required:
+        - host
+        - port
+        - username
+      properties:
+        host:
+          type: string
+          description: Cluster-internal host name of the cache.
+        port:
+          type: integer
+          description: Port the cache listens on.
+        username:
+          type: string
+          description: User applications connect as.
+    cache_release:
+      type: object
+      required:
+        - version
+        - tag
+      properties:
+        version:
+          type: string
+          description: Version line, such as 9.0.
+        tag:
+          type: string
+          description: Valkey release of the image, such as 9.0.7.
+    cache_maintenance:
+      type: object
+      description: Version and maintenance state of a cache.
+      required:
+        - window
+        - window_open
+        - next_window_start
+        - current
+        - upgrade_versions
+        - deploying
+      properties:
+        window:
+          $ref: '#/components/schemas/cache_maintenance_window'
+        window_open:
+          type: boolean
+        next_window_start:
+          type: string
+          format: date-time
+        current:
+          $ref: '#/components/schemas/cache_release'
+        available_update:
+          $ref: '#/components/schemas/cache_release'
+        upgrade_versions:
+          type: array
+          description: Version lines the cache can be upgraded to, one line at a time.
+          items:
+            type: string
+        deploying:
+          type: boolean
+          description: A deployment of the cache is running; updates wait for it.
+    cache_upgrade_request:
+      type: object
+      properties:
+        target_version:
+          type: string
+          description: Version line to upgrade to. Without it, the latest patch release of the current line is applied now.
+    cache_upgrade_response:
+      type: object
+      required:
+        - component_run
+      properties:
+        component_run:
+          $ref: '#/components/schemas/component_run'
     healthcheck:
       type: object
       description: Configuration object for health check probes including readiness and liveness probe settings
@@ -5203,6 +6508,9 @@ components:
         - managed
         - created_at
         - updated_at
+        - value
+        - file_path
+        - component_kind
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5270,6 +6578,7 @@ components:
         - KApplication
         - KHelm
         - KDatabase
+        - KCache
     component:
       type: object
       required:
@@ -5285,6 +6594,7 @@ components:
         - created_at
         - updated_at
         - resource_state
+        - deleted_at
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5353,6 +6663,12 @@ components:
         - status
         - created_at
         - updated_at
+        - pipeline_context
+        - github_build
+        - workflow_id
+        - started_at
+        - finished_at
+        - message
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5422,6 +6738,7 @@ components:
         - pipeline_component_run_id
         - stage_component_id
         - required
+        - timeout_seconds
       properties:
         pipeline_id:
           $ref: '#/components/schemas/uuid'
@@ -5472,6 +6789,7 @@ components:
         - stages
         - created_at
         - updated_at
+        - deleted_at
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5573,6 +6891,7 @@ components:
         - component_kind
         - is_required
         - created_at
+        - timeout_seconds
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5684,6 +7003,10 @@ components:
         - stage_runs
         - created_at
         - updated_at
+        - workflow_id
+        - started_at
+        - finished_at
+        - message
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5736,6 +7059,10 @@ components:
         - status
         - on_failure
         - component_runs
+        - name
+        - started_at
+        - finished_at
+        - message
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -5959,6 +7286,8 @@ components:
       required:
         - type
         - id
+        - email
+        - name
       properties:
         type:
           type: string
@@ -5981,6 +7310,7 @@ components:
         - type
         - id
         - relation
+        - name
       properties:
         type:
           type: string
@@ -6001,6 +7331,10 @@ components:
       type: object
       nullable: true
       description: The person acted upon, when it is not the actor; `id` is null for an invitee without an account.
+      required:
+        - id
+        - email
+        - name
       properties:
         id:
           type: string
@@ -6016,6 +7350,9 @@ components:
       type: object
       nullable: true
       description: Values of the changed fields before and after; a field holding a secret is in `changed_fields` but never here.
+      required:
+        - before
+        - after
       properties:
         before:
           type: object
@@ -6030,6 +7367,9 @@ components:
       description: Where the request came from. Omitted fields are not shown to resource readers.
       required:
         - entry_point
+        - ip
+        - user_agent
+        - request_id
       properties:
         ip:
           type: string
@@ -6060,6 +7400,10 @@ components:
         - changed_fields
         - metadata
         - origin
+        - organization_id
+        - denial_reason
+        - affected_user
+        - changes
       properties:
         id:
           type: string
@@ -6116,6 +7460,7 @@ components:
       type: object
       required:
         - events
+        - next_cursor
       properties:
         events:
           type: array
@@ -6240,6 +7585,9 @@ components:
         - commit_sha
         - trigger
         - platforms
+        - image_reference
+        - image_tag
+        - index_digest
       properties:
         installation_id:
           $ref: '#/components/schemas/uuid'
@@ -6279,28 +7627,18 @@ components:
             enum:
               - linux/amd64
               - linux/arm64
-    create_database_common:
+    application_port_network_url:
       type: object
       required:
-        - name
-        - version
-        - accessibility
+        - network
+        - url
       properties:
-        name:
+        network:
           type: string
-          minLength: 1
-          pattern: \S
-          description: Name of the database.
-        description:
+          description: Name of the network.
+        url:
           type: string
-          description: Optional database description.
-        version:
-          type: string
-          description: Database engine version.
-        accessibility:
-          allOf:
-            - $ref: '#/components/schemas/database_accessibility'
-          description: Database network accessibility.
+          description: URL of the port on the network.
     create_database_in_cluster_resources:
       type: object
       properties:
@@ -6344,20 +7682,36 @@ components:
         resources:
           $ref: '#/components/schemas/create_database_in_cluster_resources'
     create_database_in_cluster:
-      allOf:
-        - $ref: '#/components/schemas/create_database_common'
-        - type: object
-          required:
-            - provisioning
-            - configuration
-          properties:
-            provisioning:
-              type: string
-              enum:
-                - IN_CLUSTER
-              description: Database provisioning strategy.
-            configuration:
-              $ref: '#/components/schemas/create_database_in_cluster_configuration'
+      type: object
+      required:
+        - name
+        - version
+        - accessibility
+        - provisioning
+        - configuration
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: \S
+          description: Name of the database.
+        description:
+          type: string
+          description: Optional database description.
+        version:
+          type: string
+          description: Database engine version.
+        accessibility:
+          allOf:
+            - $ref: '#/components/schemas/database_accessibility'
+          description: Database network accessibility.
+        provisioning:
+          type: string
+          enum:
+            - IN_CLUSTER
+          description: Database provisioning strategy.
+        configuration:
+          $ref: '#/components/schemas/create_database_in_cluster_configuration'
     create_postgresql_in_cluster_database:
       allOf:
         - $ref: '#/components/schemas/create_database_in_cluster'
@@ -6397,20 +7751,36 @@ components:
         resources:
           $ref: '#/components/schemas/create_database_managed_resources'
     create_database_managed:
-      allOf:
-        - $ref: '#/components/schemas/create_database_common'
-        - type: object
-          required:
-            - provisioning
-            - configuration
-          properties:
-            provisioning:
-              type: string
-              enum:
-                - MANAGED
-              description: Database provisioning strategy.
-            configuration:
-              $ref: '#/components/schemas/create_database_managed_configuration'
+      type: object
+      required:
+        - name
+        - version
+        - accessibility
+        - provisioning
+        - configuration
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: \S
+          description: Name of the database.
+        description:
+          type: string
+          description: Optional database description.
+        version:
+          type: string
+          description: Database engine version.
+        accessibility:
+          allOf:
+            - $ref: '#/components/schemas/database_accessibility'
+          description: Database network accessibility.
+        provisioning:
+          type: string
+          enum:
+            - MANAGED
+          description: Database provisioning strategy.
+        configuration:
+          $ref: '#/components/schemas/create_database_managed_configuration'
     create_postgresql_managed_database:
       allOf:
         - $ref: '#/components/schemas/create_database_managed'
@@ -6431,14 +7801,277 @@ components:
       allOf:
         - $ref: '#/components/schemas/create_database_managed'
       description: Create a managed Mongodb database.
-    create_redis_in_cluster_database:
-      allOf:
-        - $ref: '#/components/schemas/create_database_in_cluster'
-      description: Create an in-cluster Redis database.
-    create_redis_managed_database:
-      allOf:
-        - $ref: '#/components/schemas/create_database_managed'
-      description: Create a managed Redis database.
+    database_capabilities:
+      type: object
+      description: Day-2 operations a database offers.
+      required:
+        - backups
+        - point_in_time
+      properties:
+        backups:
+          type: boolean
+          description: Backups run. MySQL and MongoDB need a backup bucket.
+        point_in_time:
+          type: boolean
+          description: Any second of the restore window can be restored; otherwise restores go back to a backup.
+    database_engine:
+      type: object
+      description: An engine databases can run, on its operator.
+      required:
+        - type
+        - display_name
+        - versions
+        - default_version
+        - capabilities
+      properties:
+        type:
+          $ref: '#/components/schemas/database_type'
+        display_name:
+          type: string
+        versions:
+          type: array
+          description: Version lines that can be created, oldest first.
+          items:
+            type: string
+        default_version:
+          type: string
+          description: Version line a new database runs when none is chosen.
+        capabilities:
+          $ref: '#/components/schemas/database_capabilities'
+    database_backup:
+      type: object
+      description: One pgBackRest backup of the database.
+      required:
+        - name
+        - type
+        - state
+        - manual
+        - created_at
+      properties:
+        name:
+          type: string
+          description: Backup label in the repository, or the request name while it runs.
+        type:
+          type: string
+          description: Backup type (full, diff or incr).
+        state:
+          type: string
+          description: Starting, Running, Succeeded or Failed.
+        manual:
+          type: boolean
+          description: Whether a user asked for this backup.
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    database_restore_status:
+      type: object
+      description: One in-place restore of the database.
+      required:
+        - name
+        - state
+        - target
+        - created_at
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+        target:
+          type: string
+          description: Point in time restored.
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    database_restore_window:
+      type: object
+      description: Any second between earliest and latest can be restored.
+      required:
+        - earliest
+        - latest
+      properties:
+        earliest:
+          type: string
+          format: date-time
+        latest:
+          type: string
+          format: date-time
+    database_backups:
+      type: object
+      description: Backup timeline of a database.
+      required:
+        - cluster_state
+        - repository_type
+        - retention_days
+        - schedule
+        - capabilities
+        - backups
+        - restores
+      properties:
+        cluster_state:
+          type: string
+          description: State reported by the operator (initializing, ready, paused...).
+        repository_type:
+          type: string
+          description: Where backups are kept, s3 or volume, empty without backups.
+        retention_days:
+          type: integer
+        schedule:
+          type: string
+          description: Cron schedule of the full backups, in UTC.
+        capabilities:
+          $ref: '#/components/schemas/database_capabilities'
+        backups:
+          type: array
+          items:
+            $ref: '#/components/schemas/database_backup'
+        restores:
+          type: array
+          items:
+            $ref: '#/components/schemas/database_restore_status'
+        restore_window:
+          $ref: '#/components/schemas/database_restore_window'
+    database_restore_request:
+      type: object
+      required:
+        - mode
+      properties:
+        target_time:
+          type: string
+          format: date-time
+          description: Point in time to restore, inside the restore window, for engines that restore any second.
+        backup_name:
+          type: string
+          description: Backup to restore, for engines that restore backups.
+        mode:
+          type: string
+          enum:
+            - new_database
+            - in_place
+          description: Restore into a new database next to this one, or roll this database back.
+        name:
+          type: string
+          description: Name of the new database (new_database mode).
+    database_maintenance_window:
+      type: object
+      description: Weekly window in which Kapten may restart the database to apply security updates.
+      required:
+        - day_of_week
+        - start_hour
+        - duration_hours
+        - timezone
+        - auto_security_updates
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: Day of the week, 0 is Sunday.
+        start_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        duration_hours:
+          type: integer
+          minimum: 1
+          maximum: 8
+        timezone:
+          type: string
+          description: IANA timezone of the window, such as Europe/Paris.
+        auto_security_updates:
+          type: boolean
+          description: Apply the latest patch release of the current major in the window.
+    database_release:
+      type: object
+      required:
+        - version
+        - tag
+        - full_version
+      properties:
+        version:
+          type: string
+          description: Version line, such as 17, 8.4 or 7.0.
+        tag:
+          type: string
+          description: Image release, such as 16.15-4 or 8.4.11-11.1.
+        full_version:
+          type: string
+          description: Database version of the image, such as 16.15 or 8.4.11.
+    database_upgrade_status:
+      type: object
+      required:
+        - name
+        - state
+        - from_version
+        - to_version
+        - created_at
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+        message:
+          type: string
+        from_version:
+          type: string
+        to_version:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    database_maintenance:
+      type: object
+      description: Version and maintenance state of a database.
+      required:
+        - window
+        - window_open
+        - next_window_start
+        - current
+        - running_image
+        - cluster_state
+        - upgrade_versions
+        - upgrades
+      properties:
+        window:
+          $ref: '#/components/schemas/database_maintenance_window'
+        window_open:
+          type: boolean
+        next_window_start:
+          type: string
+          format: date-time
+        current:
+          $ref: '#/components/schemas/database_release'
+        running_image:
+          type: string
+        cluster_state:
+          type: string
+        available_update:
+          $ref: '#/components/schemas/database_release'
+        upgrade_versions:
+          type: array
+          description: Version lines the database can be upgraded to.
+          items:
+            type: string
+        upgrades:
+          type: array
+          items:
+            $ref: '#/components/schemas/database_upgrade_status'
+    database_upgrade_request:
+      type: object
+      properties:
+        target_version:
+          type: string
+          description: Version line to upgrade to. Without it, the pending patch release of the current line is applied now.
+    database_upgrade_response:
+      type: object
+      properties:
+        component_run:
+          $ref: '#/components/schemas/component_run'
     environment_usage:
       type: object
       required:

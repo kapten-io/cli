@@ -164,7 +164,7 @@ func TestMCPServerIntegration(t *testing.T) {
 					continue
 				}
 				methods[op.Method]++
-				read := op.Method == http.MethodGet || op.Method == http.MethodHead || id == "queryApplicationRunLogs" || id == "queryJobRunLogs" || id == "queryDatabaseRunLogs"
+				read := op.Method == http.MethodGet || op.Method == http.MethodHead || id == "queryApplicationRunLogs" || id == "queryJobRunLogs" || id == "queryDatabaseRunLogs" || id == "queryCacheRunLogs"
 				if annotation["readOnlyHint"] != read {
 					t.Fatalf("incorrect read annotation for %s: %+v", id, annotation)
 				}
@@ -360,6 +360,11 @@ func TestMCPFramesIntegration(t *testing.T) {
 	}
 	if err := writer.finish(); err != nil || !json.Valid(bytes.TrimSpace(out.Bytes())) || out.Bytes()[out.Len()-1] != '\n' {
 		t.Fatalf("output framing: %q %v", out.Bytes(), err)
+	}
+	pipelined := newMCPLineReader(strings.NewReader(strings.Repeat("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n\n", 200)))
+	frameSize := len("Content-Length: 40\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}")
+	if n, err := pipelined.Read(make([]byte, 16*1024)); err != nil || n < 10*frameSize || n%frameSize != 0 {
+		t.Fatalf("buffered messages were not coalesced: %d %v", n, err)
 	}
 	if _, err := newMCPLineReader(strings.NewReader(strings.Repeat("x", mcpInputMessageLimit+1))).Read(make([]byte, 16)); err == nil {
 		t.Fatal("oversized input accepted")
