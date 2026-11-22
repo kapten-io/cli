@@ -10,16 +10,17 @@ import (
 // embedded runtime gives resource groups. Every generated group needs one
 // (TestEveryResourceGroupHasADescription).
 var groupDescriptions = map[string]string{
-	"applications": "Deploy and run long-running applications",
-	"caches":       "Create and manage caches",
-	"clusters":     "Connect and manage Kubernetes clusters",
-	"components":   "List the components of an environment",
-	"databases":    "Create and manage databases",
-	"environments": "Create and manage the environments of a project",
-	"jobs":         "Run and schedule jobs",
-	"pipelines":    "Build and run deployment pipelines",
-	"projects":     "Create and manage projects",
-	"usage":        "Show environment usage for billing",
+	"applications":      "Deploy and run long-running applications",
+	"caches":            "Create and manage caches",
+	"cloud-credentials": "Manage cloud provider credentials",
+	"clusters":          "Connect and manage Kubernetes clusters",
+	"components":        "List the components of an environment",
+	"databases":         "Create and manage databases",
+	"environments":      "Create and manage the environments of a project",
+	"jobs":              "Run and schedule jobs",
+	"pipelines":         "Build and run deployment pipelines",
+	"projects":          "Create and manage projects",
+	"usage":             "Show environment usage for billing",
 }
 
 var taggedSummary = regexp.MustCompile(`Operations tagged ([A-Za-z0-9 _-]+)`)

@@ -81,6 +81,446 @@ paths:
                 $ref: '#/components/schemas/audit_event_page'
         default:
           $ref: '#/components/responses/error_response'
+  /cluster/aws:
+    post:
+      summary: Provision an AWS EKS control plane and fixed On-Demand pools
+      description: Atomically reserves a provisioned cluster, immutable infrastructure revision and durable create operation. The same operation creates the VPC, restricted EKS control plane, protected kapten pool and fixed On-Demand workload pools. It verifies observed AWS capacity and network configuration and leaves initialization and readiness incomplete. Same organization/action/key and request replays return the existing admission; conflicting requests return 409. Custom enrollment remains POST /cluster.
+      operationId: provisionCluster
+      x-cli-name: provision-aws
+      tags:
+        - clusters
+        - cluster
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProvisionClusterInput'
+      responses:
+        '202':
+          description: Durable cluster operation admitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterAdmission'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/destroy:
+    post:
+      summary: Destroy a fixed-capacity provisioned cluster
+      description: Requires cluster-delete permission and no dependent environments, components or active work. Admits durable cleanup; new dependent work remains blocked even if cleanup fails. The same key replays the original attempt. After a failed attempt's workflow closes, submit a new key to resume cleanup with the same revision and state. Retained user data, unknown dependencies, unavailable credentials and unsupported dynamic capacity block completion. History is preserved; credentials are released only after verified cleanup. Custom clusters remain externally owned and cannot use this action.
+      operationId: destroyCluster
+      x-cli-name: destroy
+      tags:
+        - clusters
+        - cluster
+      parameters:
+        - $ref: '#/components/parameters/cluster_id'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      responses:
+        '202':
+          description: Durable destruction accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterAdmission'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/reconcile:
+    post:
+      summary: Reconcile a cluster's platform add-ons
+      description: Requires cluster-update permission. Admits a durable reconcile operation on the cluster's current revision. It applies the cluster's current settings (built-in registry, networks) and brings its platform add-ons to this Engine's versions. Refused while another operation of the cluster is in progress or before its provisioning succeeded. The cluster keeps serving and stays READY; the operation records the outcome. A failed reconcile is followed by a new one, not by a retry.
+      operationId: reconcileCluster
+      x-cli-name: reconcile
+      tags:
+        - clusters
+        - cluster
+      parameters:
+        - $ref: '#/components/parameters/cluster_id'
+      responses:
+        '202':
+          description: Durable reconcile accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterAdmission'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/operations:
+    get:
+      summary: List durable cluster operations
+      description: Returns up to 100 most recent operations from persistence, including failed operations and their last actionable phase.
+      operationId: listClusterOperations
+      x-cli-name: list-operations
+      tags:
+        - clusters
+        - cluster
+      parameters:
+        - $ref: '#/components/parameters/cluster_id'
+      responses:
+        '200':
+          description: Cluster operation history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClusterOperation'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/operations/{operation_id}:
+    get:
+      summary: Read cluster operation progress and admitted revision
+      operationId: getClusterOperation
+      x-cli-name: get-operation
+      tags:
+        - clusters
+        - cluster
+      parameters:
+        - $ref: '#/components/parameters/cluster_id'
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Durable operation, immutable revision and cluster
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterAdmission'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/operations/{operation_id}/repair:
+    post:
+      summary: Correct failed cluster creation with a new immutable revision
+      description: Requires cluster-update permission and the latest failed creation attempt with a closed workflow. Preserves the cluster, credential, account, region, state and execution versions. Configuration must change; use retry for an unchanged revision. A saved plan against existing state must pass ownership and non-destructive checks before apply. Rejected plans retain infrastructure and expose the blocking resource/action in operation failure details. Durable Custom enrollments may correct observability or replace access credentials for the same Kubernetes cluster; storage identity and capacities remain immutable. No post-success resizing or upgrades. Keys are scoped to organization, repair action and cluster; the same source and request replay, while conflicting reuse returns 409.
+      operationId: repairClusterOperation
+      x-cli-name: repair-operation
+      tags:
+        - clusters
+        - cluster
+      parameters:
+        - $ref: '#/components/parameters/cluster_id'
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepairClusterInput'
+      responses:
+        '202':
+          description: Correction admitted; poll its durable operation for plan validation and execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterAdmission'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cluster/{cluster_id}/operations/{operation_id}/retry:
+    post:
+      summary: Retry cluster provisioning using the original revision
+      description: Requires cluster-update permission. Admits a durable retry of the latest failed or interrupted operation after its workflow has closed, preserving configuration, cloud identity, state and completed phases. Interrupted queued dispatches recover automatically under their original identity. Keys are scoped to the organization and cluster; replay returns the admitted result and reuse for another source operation returns 409. Active, successful, superseded and destroy operations cannot be retried. Unknown external outcomes are reconciled before any further mutation. Custom enrollment is unaffected.
+      operationId: retryClusterOperation
+      x-cli-name: retry-operation
+      tags:
+        - clusters
+        - cluster
+      parameters:
+        - $ref: '#/components/parameters/cluster_id'
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      responses:
+        '202':
+          description: Durable retry accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterAdmission'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential/aws/{credential_id}/catalog:
+    parameters:
+      - name: credential_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Discover EKS configuration capabilities
+      description: Requires cluster-create permission and a validated credential in the active organization. Rechecks role identity, region enablement and provider catalogs on each request. A three-AZ catalog is not proof of infrastructure, node distribution, capacity or readiness.
+      operationId: getAWSClusterCatalog
+      x-cli-name: get-aws-catalog
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      parameters:
+        - name: region
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: ^[a-z0-9-]+$
+      responses:
+        '200':
+          description: Fresh capability catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterCatalog'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential/aws/{credential_id}/catalog/validate:
+    parameters:
+      - name: credential_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Validate EKS configuration choices
+      description: Requires cluster-create permission and rechecks a fresh catalog for this organization credential. Reports input paths and precise compatibility codes. This preflight has no cloud or database mutations and must be repeated at admission. Until a provision-and-initialize profile has been verified, selections fail with profile_not_executable and version_not_tested.
+      operationId: validateAWSClusterConfiguration
+      x-cli-name: validate-aws-cluster
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationChoice'
+      responses:
+        '200':
+          description: Choices passed preflight
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationValidation'
+        '422':
+          description: Choices are incompatible or the selected profiles are not executable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationValidation'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential/aws/{credential_id}/regions:
+    parameters:
+      - name: credential_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Discover enabled AWS regions
+      description: Requires cluster-create permission and a validated credential in the active organization. Enabled EC2 regions are not a guarantee of EKS eligibility or available capacity; query the regional catalog next.
+      operationId: listAWSRegions
+      x-cli-name: list-aws-regions
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      responses:
+        '200':
+          description: Enabled regions for the credential
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - regions
+                properties:
+                  regions:
+                    type: array
+                    items:
+                      type: string
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential:
+    get:
+      summary: List reusable cloud credentials in the active organization
+      description: Requires cluster-create or credential-management permission. Includes pending and invalid credentials with validation status.
+      operationId: listCloudCredentials
+      x-cli-name: list
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      parameters:
+        - $ref: '#/components/parameters/pagination_limit'
+        - $ref: '#/components/parameters/pagination_number'
+      responses:
+        '200':
+          description: Organization cloud credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - records
+                  - total_records
+                properties:
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/credential'
+                  total_records:
+                    type: integer
+                    format: int64
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential/aws:
+    post:
+      summary: Begin AWS role onboarding
+      description: Requires credential-management permission. Returns a generated external ID and trust/permission guidance. Configure the role in AWS, then validate it. Role identity is immutable; use a new credential for a different role.
+      operationId: createAWSCloudCredential
+      x-cli-name: create-aws
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - name
+                - role_arn
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                role_arn:
+                  type: string
+                  minLength: 20
+                  maxLength: 2048
+      responses:
+        '201':
+          description: Pending credential and onboarding guidance; AWS trust has not yet been verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/credential'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential/aws/{credential_id}:
+    parameters:
+      - name: credential_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get AWS credential metadata and onboarding guidance
+      operationId: getAWSCloudCredential
+      x-cli-name: get-aws
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      responses:
+        '200':
+          description: AWS credential in the active organization
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/credential'
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential/{credential_id}:
+    parameters:
+      - name: credential_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      summary: Delete an unused cloud credential
+      description: Requires credential-management permission. Returns conflict while any tracked cluster, including failed or soft-deleted infrastructure, retains a reference.
+      operationId: deleteCloudCredential
+      x-cli-name: delete
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      responses:
+        '204':
+          description: Credential deleted
+        default:
+          $ref: '#/components/responses/error_response'
+  /cloud-credential/aws/{credential_id}/validate:
+    parameters:
+      - name: credential_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Validate AWS role assumption and account identity
+      description: Requires credential-management permission. Returns persisted validation status and sanitized failure guidance. A successful identity check does not certify every provisioning permission.
+      operationId: validateAWSCloudCredential
+      x-cli-name: validate-aws
+      tags:
+        - cloud-credentials
+        - cloud-credential
+      responses:
+        '200':
+          description: Credential with the latest validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/credential'
+        default:
+          $ref: '#/components/responses/error_response'
   /authorization/resources:
     get:
       operationId: listAuthorizationResources
@@ -172,26 +612,34 @@ paths:
         default:
           $ref: '#/components/responses/error_response'
     post:
-      summary: Connect a cluster
-      description: Connects a Kubernetes cluster from its kubeconfig. Kapten then installs its agent on the cluster.
+      summary: Enroll an existing Kubernetes cluster with durable initialization
+      description: Admits a Custom enrollment with immutable configuration, durable operations and configurable observability. Supply a self-contained base64-encoded kubeconfig. No cloud credential or Terraform state is needed. Storage must use a dynamic Retain StorageClass; omit storage_class only when there is exactly one default. Uses the single-replica profile with no high-availability guarantee.
       operationId: createCluster
       x-cli-name: create
       tags:
         - clusters
         - cluster
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/create_cluster_dto'
+              $ref: '#/components/schemas/EnrollClusterInput'
       responses:
-        '200':
-          description: Cluster created successfully
+        '202':
+          description: Durable cluster operation admitted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/cluster'
+                $ref: '#/components/schemas/ClusterAdmission'
         default:
           $ref: '#/components/responses/error_response'
   /cluster/{cluster_id}:
@@ -216,7 +664,7 @@ paths:
           $ref: '#/components/responses/error_response'
     put:
       summary: Update a cluster
-      description: Updates a cluster's settings.
+      description: Renames a cluster or turns its built-in registry on or off. Use failed-operation repair to correct kubeconfig access or initialization settings.
       operationId: updateCluster
       x-cli-name: update
       tags:
@@ -250,19 +698,43 @@ paths:
           description: Cluster deleted successfully
         default:
           $ref: '#/components/responses/error_response'
-  /cluster/{cluster_id}/sync:
+  /cluster/{cluster_id}/backup-destination:
     parameters:
       - $ref: '#/components/parameters/cluster_id'
-    post:
-      summary: Sync a cluster
-      description: Runs the cluster's setup again, as when it was connected.
-      operationId: syncCluster
-      x-cli-ignore: true
+    put:
+      summary: Set a cluster's backup destination
+      description: Checks the bucket by writing and deleting a test object, then makes it where the cluster's databases write their backups from their next deployment. A bucket the check cannot write to returns 422.
+      operationId: setClusterBackupDestination
+      x-cli-name: set-backup-destination
       tags:
+        - clusters
+        - cluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/set_cluster_backup_destination_dto'
+      responses:
+        '200':
+          description: Backup destination set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cluster'
+        default:
+          $ref: '#/components/responses/error_response'
+    delete:
+      summary: Remove a cluster's backup destination
+      description: Removes the backup destination and its keys. Databases that need a bucket for their backups stop backing up from their next deployment.
+      operationId: removeClusterBackupDestination
+      x-cli-name: remove-backup-destination
+      tags:
+        - clusters
         - cluster
       responses:
         '200':
-          description: Cluster sync scheduled successfully
+          description: Backup destination removed
           content:
             application/json:
               schema:
@@ -3852,10 +4324,14 @@ components:
         - created_at
         - update_at
         - deleted_at
+        - backup_destination
         - domain
         - gateway_addresses
         - builtin_registry
       properties:
+        revision:
+          $ref: '#/components/schemas/ClusterRevision'
+          description: Latest admitted provisioning revision, populated by the cluster detail endpoint when available.
         id:
           $ref: '#/components/schemas/uuid'
         organization_id:
@@ -3883,6 +4359,11 @@ components:
           format: date-time
           nullable: true
           description: The timestamp when the cluster was deleted updated.
+        backup_destination:
+          allOf:
+            - $ref: '#/components/schemas/cluster_backup_destination'
+          nullable: true
+          description: Where the cluster's databases write their backups, or null when they have nowhere to.
         domain:
           type: string
           nullable: true
@@ -3893,6 +4374,7 @@ components:
             type: string
           description: The public addresses of the cluster's shared gateway, as last reported by the agent. Empty until the gateway gets a public address.
       example:
+        backup_destination: null
         cloud_provider: aws
         created_at: '2025-06-10T22:16:02Z'
         deleted_at: '2025-06-10T22:16:02Z'
@@ -3943,45 +4425,107 @@ components:
           type: string
           description: Why the registry is not ready, when it is not.
     create_cluster_dto:
-      type: object
-      properties:
-        name:
-          type: string
-          minLength: 1
-          pattern: \S
-          description: The name of the cluster.
-        cloud_provider:
-          $ref: '#/components/schemas/cloud_provider'
-        kube_config:
-          type: string
-          format: byte
-          description: The base64-encoded Kubernetes configuration for the cluster.
-      required:
-        - name
-        - cloud_provider
-        - kube_config
-      example:
-        name: my-production-cluster
-        cloud_provider: aws
-        kube_config: YXBpVmVyc2lvbjogdjEKY2x1c3RlcnM6Ci0gY2x1c3RlcjoKICAgIGNlcnRpZmljYXRlLWF1dGhvcml0eS1kYXRhOiBMUzB0TFMwdENrMUZUa1JEUXk1c2NITUtMUzB0TFMwPQogICAgc2VydmVyOiBodHRwczovL2t1YmVybmV0ZXMuZXhhbXBsZS5jb20KICBuYW1lOiBleGFtcGxlLWNsdXN0ZXIK
+      $ref: '#/components/schemas/EnrollClusterInput'
     update_cluster_dto:
       type: object
+      additionalProperties: false
       properties:
         name:
           type: string
           minLength: 1
           pattern: \S
           description: The name of the cluster.
-        kube_config:
-          type: string
-          format: byte
-          description: The base64-encoded Kubernetes configuration for the cluster. Replacing it syncs the cluster so that its agent uses the new configuration, and is refused while a sync is in progress.
         builtin_registry:
           type: boolean
-          description: Turns the cluster's built-in container registry on or off, which syncs the cluster. Turning it off is refused while applications of the cluster use it or a sync is in progress, and keeps its stored images for when it is turned on again.
+          description: Turns the cluster's built-in container registry on or off, which reconciles the cluster. Turning it off is refused while applications of the cluster use it, and keeps its stored images for when it is turned on again. The change is refused while another operation of the cluster is in progress.
       example:
         name: my-production-cluster
-        kube_config: YXBpVmVyc2lvbjogdjEKY2x1c3RlcnM6Ci0gY2x1c3RlcjoKICAgIGNlcnRpZmljYXRlLWF1dGhvcml0eS1kYXRhOiBMUzB0TFMxQ1JVZEpUaUJEUlZKVVNVWkpRMEZVUlMwdExTMHQ=
+    cluster_backup_destination:
+      type: object
+      description: Where the cluster's databases write their backups. The keys are never returned.
+      properties:
+        s3:
+          $ref: '#/components/schemas/s3_backup_destination'
+      example:
+        s3:
+          endpoint: https://s3.fr-par.scw.cloud
+          bucket: my-backups
+          region: fr-par
+          uri_style: host
+          verify_tls: true
+    s3_backup_destination:
+      type: object
+      description: An S3-compatible bucket. Each database writes under its own prefix.
+      required:
+        - endpoint
+        - bucket
+        - uri_style
+        - verify_tls
+      properties:
+        endpoint:
+          type: string
+          description: The http or https URL of the S3 API, without a path.
+        bucket:
+          type: string
+          description: The bucket backups are written to.
+        region:
+          type: string
+          description: The bucket's region, when the store needs one.
+        uri_style:
+          $ref: '#/components/schemas/s3_uri_style'
+        verify_tls:
+          type: boolean
+          description: Whether the endpoint's TLS certificate is verified.
+    s3_uri_style:
+      type: string
+      description: How the bucket is addressed, in the host name (host) or in the path (path).
+      enum:
+        - host
+        - path
+    set_cluster_backup_destination_dto:
+      type: object
+      required:
+        - s3
+      properties:
+        s3:
+          type: object
+          required:
+            - endpoint
+            - bucket
+          properties:
+            endpoint:
+              type: string
+              minLength: 1
+              description: The http or https URL of the S3 API, without a path.
+            bucket:
+              type: string
+              minLength: 1
+              description: The bucket backups are written to.
+            region:
+              type: string
+              description: The bucket's region, when the store needs one.
+            uri_style:
+              $ref: '#/components/schemas/s3_uri_style'
+            verify_tls:
+              type: boolean
+              default: true
+              description: Whether the endpoint's TLS certificate is verified.
+            access_key_id:
+              type: string
+              description: The access key. Leave it out with the secret key to keep the stored keys.
+            secret_access_key:
+              type: string
+              format: password
+              description: The secret key. Leave it out with the access key to keep the stored keys.
+      example:
+        s3:
+          endpoint: https://s3.fr-par.scw.cloud
+          bucket: my-backups
+          region: fr-par
+          uri_style: host
+          verify_tls: true
+          access_key_id: SCWXXXXXXXXXXXXXXXXX
+          secret_access_key: 00000000-0000-0000-0000-000000000000
     cluster_network:
       type: object
       required:
@@ -5104,6 +5648,9 @@ components:
             - healthchecks
             - default_port
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             cpu_limit_in_milli:
               type: string
               description: Maximum cpu that can be allocated to the job based on organization cluster configuration. unit is millicores (m). 1000m = 1 cpu
@@ -5178,6 +5725,9 @@ components:
           required:
             - healthchecks
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             cpu_limit_in_milli:
               type: string
               description: Maximum cpu that can be allocated to the job based on organization cluster configuration. unit is millicores (m). 1000m = 1 cpu
@@ -5250,6 +5800,9 @@ components:
         configuration:
           type: object
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             cpu_limit_in_milli:
               type: string
               description: Updated CPU limit.
@@ -5331,6 +5884,9 @@ components:
             - min_running_instances
             - max_running_instances
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             cpu_limit_in_milli:
               type: string
               description: Maximum CPU allocated to the application. Unit is millicores (m).
@@ -5402,6 +5958,9 @@ components:
             - source
             - healthchecks
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             cpu_limit_in_milli:
               type: string
               description: Maximum CPU allocated to the application. Unit is millicores (m).
@@ -5471,6 +6030,9 @@ components:
         configuration:
           type: object
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             cpu_limit_in_milli:
               type: string
               description: Updated CPU limit.
@@ -5746,6 +6308,9 @@ components:
             - ram_request_in_mib
             - ram_limit_in_mib
           properties:
+            pool:
+              type: string
+              description: Optional build workload pool. Empty uses the cluster default; kapten is reserved.
             context:
               type: string
               default: .
@@ -5858,6 +6423,9 @@ components:
             - ram_limit_in_mib
             - timeout_seconds
           properties:
+            pool:
+              type: string
+              description: Optional build workload pool. Empty uses the cluster default; kapten is reserved.
             context:
               type: string
             cpu_request_in_milli:
@@ -5978,6 +6546,9 @@ components:
           required:
             - resources
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             database_name:
               type: string
               description: Logical database name created inside the engine.
@@ -6064,6 +6635,9 @@ components:
         configuration:
           type: object
           properties:
+            pool:
+              type: string
+              description: Optional workload pool. Omit or use an empty string for the cluster default; kapten is reserved.
             encrypt_disk:
               type: boolean
             activate_high_availability:
@@ -7471,6 +8045,1278 @@ components:
           type: string
           nullable: true
           description: Pass as `cursor` for the next, older page; null on the last page.
+    CatalogCapacityLimits:
+      type: object
+      additionalProperties: false
+      required:
+        - cpu
+        - memory_mib
+        - gpus
+      properties:
+        cpu:
+          type: integer
+          format: int64
+          minimum: 1
+        memory_mib:
+          type: integer
+          format: int64
+          minimum: 1
+        gpus:
+          type: integer
+          format: int64
+          minimum: 0
+    ClusterNodePool:
+      description: Fixed On-Demand pools require instance_type and node_count. Explicit Spot pools require instance_types or instance_families and aggregate limits, without a fixed count. Limits are eventually consistent controls, not spending caps.
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - architecture
+        - capacity_policy
+      properties:
+        name:
+          type: string
+          pattern: ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$
+        instance_type:
+          type: string
+          minLength: 1
+          maxLength: 64
+          x-go-type-skip-optional-pointer: true
+        node_count:
+          type: integer
+          minimum: 1
+          maximum: 100
+          x-go-type-skip-optional-pointer: true
+        architecture:
+          type: string
+          enum:
+            - amd64
+            - arm64
+        capacity_policy:
+          type: string
+          enum:
+            - on_demand
+            - spot_with_on_demand_fallback
+        instance_types:
+          type: array
+          maxItems: 40
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          x-go-type-skip-optional-pointer: true
+        instance_families:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 32
+            pattern: ^[a-z0-9-]+$
+          x-go-type-skip-optional-pointer: true
+        limits:
+          $ref: '#/components/schemas/CatalogCapacityLimits'
+        profile_id:
+          type: string
+          maxLength: 64
+    ClusterNetworkConfig:
+      type: object
+      additionalProperties: false
+      description: Creates a dedicated three-AZ VPC. Omitted CIDRs derive six nonoverlapping subnets from 10.0.0.0/16. No existing VPC or shared network can be supplied. Private subnets require at least /24 capacity. Subnet list positions correspond to worker_zone_ids.
+      properties:
+        cidr:
+          type: string
+          maxLength: 18
+        worker_zone_ids:
+          type: array
+          minItems: 3
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 64
+        control_plane_zone_ids:
+          type: array
+          minItems: 2
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 64
+        private_subnet_cidrs:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: string
+            maxLength: 18
+        public_subnet_cidrs:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: string
+            maxLength: 18
+        nat_mode:
+          type: string
+          enum:
+            - regional_auto
+            - one_per_az
+          description: Regional automatic public NAT is the default. one_per_az explicitly creates one public NAT in each selected AZ. Neither option establishes verified egress or cluster readiness.
+    ClusterObservabilityInput:
+      type: object
+      additionalProperties: false
+      description: Optional choices. Creation defaults to 14-day retention, 20-GiB stores, 15s scrapes, standard requests and enabled Grafana. Omitted correction fields preserve admitted values. Storage sizes and the Grafana choice cannot change during correction.
+      properties:
+        logs_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+        metrics_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+        logs_storage_gib:
+          type: integer
+          minimum: 5
+          maximum: 1024
+        metrics_storage_gib:
+          type: integer
+          minimum: 5
+          maximum: 1024
+        scrape_interval:
+          type: string
+          enum:
+            - 15s
+            - 30s
+            - 60s
+          description: Application and exporter scrapes. cAdvisor remains at 30s.
+        resource_preset:
+          type: string
+          enum:
+            - small
+            - standard
+            - large
+        grafana_enabled:
+          type: boolean
+    ProvisionClusterInput:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - credential_id
+        - region
+        - node_pools
+        - default_pool
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: \S
+        credential_id:
+          type: string
+          format: uuid
+        region:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: ^[a-z0-9-]+$
+        kubernetes_version:
+          type: string
+          enum:
+            - '1.34'
+        node_pools:
+          type: array
+          minItems: 2
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ClusterNodePool'
+        default_pool:
+          type: string
+          minLength: 1
+          maxLength: 63
+        network:
+          $ref: '#/components/schemas/ClusterNetworkConfig'
+        observability:
+          $ref: '#/components/schemas/ClusterObservabilityInput'
+    ClusterDesiredConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        storage_class:
+          type: string
+        cloud_provider:
+          type: string
+          enum:
+            - aws
+            - custom
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: \S
+        credential_id:
+          type: string
+          format: uuid
+        region:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: ^[a-z0-9-]+$
+        kubernetes_version:
+          type: string
+        node_pools:
+          type: array
+          minItems: 2
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ClusterNodePool'
+        default_pool:
+          type: string
+          minLength: 1
+          maxLength: 63
+        network:
+          $ref: '#/components/schemas/ClusterNetworkConfig'
+        observability:
+          $ref: '#/components/schemas/ClusterObservabilityInput'
+    ClusterObservabilityResources:
+      type: object
+      required:
+        - cpu_millicores
+        - memory_mib
+      properties:
+        cpu_millicores:
+          type: integer
+        memory_mib:
+          type: integer
+    ClusterObservabilitySettings:
+      type: object
+      required:
+        - logs_retention_days
+        - metrics_retention_days
+        - logs_storage_gib
+        - metrics_storage_gib
+        - scrape_interval
+        - resource_preset
+        - grafana_enabled
+        - resource_profile
+        - resources
+      description: Frozen settings. Retention is not a disk-capacity guarantee. Grafana uses a managed 5-GiB volume when enabled. Lower retention can expire older records. CPU/memory requests are per pod; limits remain unset.
+      properties:
+        logs_retention_days:
+          type: integer
+        metrics_retention_days:
+          type: integer
+        logs_storage_gib:
+          type: integer
+        metrics_storage_gib:
+          type: integer
+        scrape_interval:
+          type: string
+        resource_preset:
+          type: string
+        grafana_enabled:
+          type: boolean
+        resource_profile:
+          type: string
+        resources:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ClusterObservabilityResources'
+    ClusterObservabilityConfig:
+      type: object
+      description: Pinned observability charts and resolved settings; settings are absent on legacy revisions.
+      required:
+        - profile
+        - charts
+      properties:
+        profile:
+          type: string
+        charts:
+          type: object
+          additionalProperties:
+            type: string
+        settings:
+          $ref: '#/components/schemas/ClusterObservabilitySettings'
+    ClusterBootstrapConfig:
+      type: object
+      required:
+        - profile
+        - agent_image
+        - agent_address
+        - development
+      properties:
+        profile:
+          type: string
+        agent_image:
+          type: string
+        agent_address:
+          type: string
+        development:
+          type: boolean
+        observability:
+          $ref: '#/components/schemas/ClusterObservabilityConfig'
+    ClusterCustomConfig:
+      type: object
+      required:
+        - profile
+        - cluster_uid
+        - storage_class
+        - storage_class_uid
+      properties:
+        profile:
+          type: string
+        cluster_uid:
+          type: string
+        storage_class:
+          type: string
+        storage_class_uid:
+          type: string
+    ClusterFixedPool:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - architecture
+        - capacity_policy
+        - ami_type
+        - image_id
+      properties:
+        ami_type:
+          type: string
+        image_id:
+          type: string
+        name:
+          type: string
+          pattern: ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$
+        instance_type:
+          type: string
+          minLength: 1
+          maxLength: 64
+          x-go-type-skip-optional-pointer: true
+        node_count:
+          type: integer
+          minimum: 1
+          maximum: 100
+          x-go-type-skip-optional-pointer: true
+        architecture:
+          type: string
+          enum:
+            - amd64
+            - arm64
+        capacity_policy:
+          type: string
+          enum:
+            - on_demand
+            - spot_with_on_demand_fallback
+        instance_types:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          x-go-type-skip-optional-pointer: true
+        instance_families:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 32
+            pattern: ^[a-z0-9-]+$
+          x-go-type-skip-optional-pointer: true
+        limits:
+          $ref: '#/components/schemas/CatalogCapacityLimits'
+        profile_id:
+          type: string
+          maxLength: 64
+    ClusterEKSConfig:
+      type: object
+      required:
+        - kubernetes_version
+        - module_version
+        - support_policy
+        - standard_support_ends_at
+        - extended_support_ends_at
+        - additional_charges
+        - public_access_cidrs
+        - node_pools
+        - default_pool
+        - addons
+      properties:
+        karpenter_version:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        kubernetes_version:
+          type: string
+        module_version:
+          type: string
+        support_policy:
+          type: string
+          enum:
+            - EXTENDED
+        standard_support_ends_at:
+          type: string
+          format: date-time
+        extended_support_ends_at:
+          type: string
+          format: date-time
+        additional_charges:
+          type: boolean
+        public_access_cidrs:
+          type: array
+          items:
+            type: string
+        node_pools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClusterFixedPool'
+        default_pool:
+          type: string
+        addons:
+          type: object
+          additionalProperties:
+            type: string
+    ClusterProvisionConfig:
+      type: object
+      required:
+        - version
+        - provider
+      properties:
+        version:
+          type: integer
+        bootstrap:
+          $ref: '#/components/schemas/ClusterBootstrapConfig'
+        custom:
+          $ref: '#/components/schemas/ClusterCustomConfig'
+        eks:
+          $ref: '#/components/schemas/ClusterEKSConfig'
+        provider:
+          type: string
+          enum:
+            - aws
+            - custom
+            - gcp
+            - azure
+        credential_id:
+          type: string
+          format: uuid
+        account_id:
+          type: string
+        principal_id:
+          type: string
+        region:
+          type: string
+        network:
+          $ref: '#/components/schemas/ClusterNetworkConfig'
+        zone_names:
+          type: array
+          items:
+            type: string
+        terraform_version:
+          type: string
+        module_version:
+          type: string
+        provider_version:
+          type: string
+        state_bucket:
+          type: string
+        state_region:
+          type: string
+        state_key:
+          type: string
+    ClusterRevision:
+      type: object
+      required:
+        - id
+        - cluster_id
+        - desired
+        - effective
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        cluster_id:
+          type: string
+          format: uuid
+        desired:
+          $ref: '#/components/schemas/ClusterDesiredConfig'
+        effective:
+          $ref: '#/components/schemas/ClusterProvisionConfig'
+        created_at:
+          type: string
+          format: date-time
+    ClusterOperationEvent:
+      type: object
+      required:
+        - phase
+        - status
+        - at
+      properties:
+        phase:
+          type: string
+        status:
+          type: string
+        at:
+          type: string
+          format: date-time
+        failure_code:
+          type: string
+          description: Sanitized failure classification at this transition.
+        failure_message:
+          type: string
+          description: Actionable safe failure message retained with the event.
+    ClusterCapacityObservation:
+      type: object
+      required:
+        - name
+        - node_group_arn
+        - status
+        - capacity_type
+        - desired
+        - observed
+        - zone_counts
+      properties:
+        name:
+          type: string
+        node_group_arn:
+          type: string
+        status:
+          type: string
+          enum:
+            - unverified
+            - verified
+            - waiting_for_demand
+        capacity_type:
+          type: string
+          description: Observed ON_DEMAND, SPOT or MIXED; empty when no nodes have been observed.
+        capacity_counts:
+          type: object
+          additionalProperties:
+            type: integer
+          x-go-type-skip-optional-pointer: true
+        desired:
+          type: integer
+        observed:
+          type: integer
+        zone_counts:
+          type: object
+          additionalProperties:
+            type: integer
+    ClusterEKSOutputs:
+      type: object
+      required:
+        - name
+        - arn
+        - endpoint
+        - node_groups
+        - verified
+      properties:
+        name:
+          type: string
+        arn:
+          type: string
+        endpoint:
+          type: string
+        node_groups:
+          type: object
+          additionalProperties:
+            type: string
+        pools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClusterCapacityObservation'
+        verified:
+          type: boolean
+          description: AWS capacity and network configuration checks passed. Runtime node readiness, zonal egress and initialization remain incomplete.
+    ClusterNetworkOutputs:
+      type: object
+      properties:
+        eks:
+          $ref: '#/components/schemas/ClusterEKSOutputs'
+        vpc_id:
+          type: string
+        private_subnet_ids:
+          type: array
+          items:
+            type: string
+        public_subnet_ids:
+          type: array
+          items:
+            type: string
+        control_plane_subnet_ids:
+          type: array
+          items:
+            type: string
+        nat_gateway_ids:
+          type: array
+          items:
+            type: string
+        state_key:
+          type: string
+        recovery_ref:
+          type: string
+          description: Private operator volume path retained if both remote-state and Vault writes failed; never contains access material.
+        artifact_ref:
+          type: string
+          description: Opaque operator secret-storage reference, never state or access material.
+    ClusterOperation:
+      type: object
+      required:
+        - id
+        - organization_id
+        - cluster_id
+        - revision_id
+        - kind
+        - status
+        - phase
+        - failure_code
+        - failure_message
+        - history
+        - outputs
+        - created_at
+        - updated_at
+        - finished_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        cluster_id:
+          type: string
+          format: uuid
+        revision_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - create
+            - retry
+            - repair
+            - destroy
+            - reconcile
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - succeeded
+            - failed
+        phase:
+          type: string
+          description: Last actionable phase. Custom starts with kubernetes_preparation without cloud apply. New revisions progress through capacity_verification, initialization, agent_execution, readiness_verification and deployment_verification. Only succeeded at ready sets cluster state READY, after runtime checks and probe cleanup. Failed readiness remains INITIALIZE_ERROR and retains resources for retry. Legacy revisions retain network_provisioned, infrastructure_provisioned or agent_execution_verified completion without implying readiness.
+        failure_code:
+          type: string
+        failure_message:
+          type: string
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClusterOperationEvent'
+        outputs:
+          $ref: '#/components/schemas/ClusterNetworkOutputs'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+    ClusterAdmission:
+      type: object
+      required:
+        - cluster
+        - revision
+        - operation
+      properties:
+        cluster:
+          $ref: '#/components/schemas/cluster'
+        revision:
+          $ref: '#/components/schemas/ClusterRevision'
+        operation:
+          $ref: '#/components/schemas/ClusterOperation'
+    CustomClusterRepairInput:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: \S
+        kube_config:
+          type: string
+          format: byte
+          minLength: 1
+          maxLength: 1398104
+          writeOnly: true
+        storage_class:
+          type: string
+          minLength: 1
+          maxLength: 253
+        observability:
+          $ref: '#/components/schemas/ClusterObservabilityInput'
+    RepairClusterInput:
+      oneOf:
+        - $ref: '#/components/schemas/ProvisionClusterInput'
+        - $ref: '#/components/schemas/CustomClusterRepairInput'
+    CatalogZone:
+      type: object
+      required:
+        - id
+        - name
+        - worker_eligible
+        - control_plane_eligible
+        - control_plane_reason
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        worker_eligible:
+          type: boolean
+        control_plane_eligible:
+          type: boolean
+        control_plane_reason:
+          type: string
+    CompatibilityIssue:
+      type: object
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    CatalogProfileCompatibility:
+      type: object
+      required:
+        - profile_id
+        - ami_type
+        - image_id
+        - ami_available
+        - addons_compatible
+        - executable
+        - issues
+      properties:
+        profile_id:
+          type: string
+        ami_type:
+          type: string
+        image_id:
+          type: string
+          description: Current EKS public AMI parameter value, empty when no AMI is published. This is discovery data, not a pinned execution revision.
+        ami_available:
+          type: boolean
+        addons_compatible:
+          type: boolean
+        executable:
+          type: boolean
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompatibilityIssue'
+    CatalogAddon:
+      type: object
+      required:
+        - name
+        - version
+        - architectures
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        architectures:
+          type: array
+          items:
+            type: string
+    CatalogVersion:
+      type: object
+      required:
+        - version
+        - standard_support_ends_at
+        - extended_support_ends_at
+        - support_policy
+        - additional_charges
+        - tested
+        - selectable
+        - profiles
+        - addons
+      properties:
+        version:
+          type: string
+        standard_support_ends_at:
+          type: string
+          format: date-time
+        extended_support_ends_at:
+          type: string
+          format: date-time
+        support_policy:
+          type: string
+          enum:
+            - EXTENDED
+          description: Future cluster creation explicitly enables EKS paid extended support after standard support expires. Extended support is finite; AWS may upgrade a cluster after its end. Node and add-on upgrades are a separate lifecycle.
+        additional_charges:
+          type: boolean
+          description: Extended support incurs additional AWS charges after the standard-support deadline.
+        tested:
+          type: boolean
+        selectable:
+          type: boolean
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogProfileCompatibility'
+        addons:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogAddon'
+    CatalogProfile:
+      type: object
+      required:
+        - id
+        - architecture
+        - kind
+        - required_components
+        - executable
+        - unavailable_reason
+      properties:
+        id:
+          type: string
+        architecture:
+          type: string
+          enum:
+            - amd64
+            - arm64
+        kind:
+          type: string
+          enum:
+            - general
+            - nvidia
+            - neuron
+            - hpc_efa
+            - bare_metal
+        required_components:
+          type: array
+          items:
+            type: string
+        executable:
+          type: boolean
+        unavailable_reason:
+          type: string
+    CatalogInstanceType:
+      type: object
+      required:
+        - name
+        - architectures
+        - cpu_manufacturer
+        - vcpus
+        - memory_mib
+        - gpus
+        - accelerator
+        - efa_supported
+        - bare_metal
+        - ebs_available
+        - usage_classes
+        - availability_zone_ids
+        - profile_ids
+        - executable
+        - issues
+      properties:
+        name:
+          type: string
+        architectures:
+          type: array
+          items:
+            type: string
+            enum:
+              - amd64
+              - arm64
+        cpu_manufacturer:
+          type: string
+        vcpus:
+          type: integer
+          format: int32
+        memory_mib:
+          type: integer
+          format: int64
+        gpus:
+          type: integer
+          format: int32
+        accelerator:
+          type: string
+        efa_supported:
+          type: boolean
+        bare_metal:
+          type: boolean
+        ebs_available:
+          type: boolean
+        usage_classes:
+          type: array
+          items:
+            type: string
+        availability_zone_ids:
+          type: array
+          description: EC2 offerings in usable ordinary worker zones, not immediately available capacity.
+          items:
+            type: string
+        profile_ids:
+          type: array
+          description: Candidate initialization profiles. Consult version compatibility, instance issues and executable flags before selection. EFA and bare-metal requirements remain applicable to accelerated instances.
+          items:
+            type: string
+        executable:
+          type: boolean
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompatibilityIssue'
+    CatalogStorageType:
+      type: object
+      required:
+        - name
+        - volume_kind
+        - requires_addon
+      properties:
+        name:
+          type: string
+        volume_kind:
+          type: string
+        requires_addon:
+          type: string
+          description: Persistent-volume support also requires this add-on to be compatible with the selected version and architecture.
+    CatalogCapacityPolicy:
+      type: object
+      required:
+        - name
+        - provisioner
+        - fixed_count
+        - on_demand_fallback
+        - kapten_eligible
+        - limits_are_hard_caps
+      properties:
+        name:
+          type: string
+          enum:
+            - on_demand
+            - spot_with_on_demand_fallback
+        provisioner:
+          type: string
+          enum:
+            - eks_managed_node_group
+            - karpenter
+        fixed_count:
+          type: boolean
+        on_demand_fallback:
+          type: boolean
+        kapten_eligible:
+          type: boolean
+        limits_are_hard_caps:
+          type: boolean
+          description: Karpenter aggregate limits are eventually consistent controls, not hard spending caps.
+    ClusterCatalog:
+      type: object
+      description: Fresh credential and region scoped observations. EC2 offerings, AMI availability and add-on compatibility do not establish tested Kapten execution or immediate capacity. No profile is executable until its provision-and-initialize acceptance checks pass.
+      required:
+        - provider
+        - region
+        - observed_at
+        - availability_zones
+        - three_az_eligible
+        - kubernetes_versions
+        - default_kubernetes_version
+        - profiles
+        - instance_types
+        - storage_types
+        - capacity_policies
+        - immediate_capacity
+        - issues
+      properties:
+        provider:
+          type: string
+          enum:
+            - aws
+            - gcp
+            - azure
+        region:
+          type: string
+        observed_at:
+          type: string
+          format: date-time
+        availability_zones:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogZone'
+        three_az_eligible:
+          type: boolean
+        kubernetes_versions:
+          type: array
+          description: AWS standard-support versions with known deadlines. Only tested and selectable entries are creation choices.
+          items:
+            $ref: '#/components/schemas/CatalogVersion'
+        default_kubernetes_version:
+          type: string
+          nullable: true
+          description: Newest tested selectable version, null while no provision-and-initialize profile is verified. Never inherits the AWS default silently.
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogProfile'
+        instance_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogInstanceType'
+        storage_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogStorageType'
+        capacity_policies:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogCapacityPolicy'
+        immediate_capacity:
+          type: string
+          enum:
+            - unknown
+          description: Offerings do not reserve or guarantee On-Demand or Spot capacity.
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompatibilityIssue'
+    PoolChoice:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - architecture
+        - profile_id
+        - capacity_policy
+        - instance_types
+        - instance_families
+        - node_count
+        - availability_zone_ids
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: ^[a-z][a-z0-9-]*$
+        architecture:
+          type: string
+          enum:
+            - amd64
+            - arm64
+        profile_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        capacity_policy:
+          type: string
+          enum:
+            - on_demand
+            - spot_with_on_demand_fallback
+        instance_types:
+          type: array
+          maxItems: 40
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        instance_families:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 32
+            pattern: ^[a-z0-9-]+$
+        node_count:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        limits:
+          $ref: '#/components/schemas/CatalogCapacityLimits'
+        availability_zone_ids:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          description: Empty selects all worker zones; specialized workload pools may select a subset. The kapten pool always spans all three.
+    ConfigurationChoice:
+      type: object
+      additionalProperties: false
+      description: Read-only preflight of explicit catalog selections. Does not provision, persist a revision, reserve capacity or validate VPC CIDRs/routes. Admission must repeat these checks with fresh discovery and validate the complete network.
+      required:
+        - region
+        - kubernetes_version
+        - worker_zone_ids
+        - control_plane_zone_ids
+        - storage_type
+        - node_pools
+      properties:
+        region:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: ^[a-z0-9-]+$
+        kubernetes_version:
+          type: string
+          maxLength: 16
+          pattern: ^1\.[0-9]+$
+        worker_zone_ids:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        control_plane_zone_ids:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        storage_type:
+          type: string
+          minLength: 1
+          maxLength: 32
+        node_pools:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/PoolChoice'
+    ConfigurationValidation:
+      type: object
+      required:
+        - valid
+        - issues
+      properties:
+        valid:
+          type: boolean
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompatibilityIssue'
+    credential:
+      type: object
+      required:
+        - id
+        - organization_id
+        - name
+        - provider
+        - role_arn
+        - external_id
+        - account_id
+        - validation_status
+        - validation_error
+        - validated_at
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        provider:
+          type: string
+          enum:
+            - aws
+        role_arn:
+          type: string
+        external_id:
+          type: string
+          description: Kapten-generated trust-association metadata, not an AWS secret.
+        account_id:
+          type: string
+          description: Verified AWS account; empty until validation succeeds.
+        validation_status:
+          type: string
+          enum:
+            - pending
+            - valid
+            - invalid
+        validation_error:
+          type: string
+        validated_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        guidance:
+          type: object
+          required:
+            - trust_policy
+            - permissions
+          properties:
+            trust_policy:
+              type: object
+              additionalProperties: true
+            permissions:
+              type: array
+              items:
+                type: string
+    EnrollClusterInput:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - kube_config
+      properties:
+        cloud_provider:
+          type: string
+          enum:
+            - custom
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: \S
+        kube_config:
+          type: string
+          format: byte
+          minLength: 1
+          maxLength: 1398104
+          writeOnly: true
+        storage_class:
+          type: string
+          minLength: 1
+          maxLength: 253
+        observability:
+          $ref: '#/components/schemas/ClusterObservabilityInput'
     create_container_registry_common:
       type: object
       required:
@@ -7667,6 +9513,9 @@ components:
       required:
         - resources
       properties:
+        pool:
+          type: string
+          description: Optional workload pool; empty uses the cluster default.
         database_name:
           type: string
           description: Logical database name created inside the engine.

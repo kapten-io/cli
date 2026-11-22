@@ -136,6 +136,9 @@ func TestMCPServerIntegration(t *testing.T) {
 				}
 				args[p.Name] = v
 			}
+			for name, value := range op.Headers {
+				args[name] = value
+			}
 			if op.Body != nil {
 				var body any
 				if err := json.Unmarshal(op.Body, &body); err != nil {
