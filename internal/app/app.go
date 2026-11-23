@@ -207,7 +207,7 @@ func ensureRestishConfig() (string, error) {
 }
 
 func withPaginatedOutputDefaults(args []string) []string {
-	if len(args) < 2 || (args[1] != "list" && !strings.HasPrefix(args[1], "list-")) {
+	if len(args) < 2 || !paginatedListCommands()[args[0]+" "+args[1]] {
 		return args
 	}
 	if outputOptionsSet(args) || os.Getenv("RSH_OUTPUT_FORMAT") != "" || os.Getenv("RSH_FILTER") != "" {

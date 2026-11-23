@@ -40,9 +40,7 @@ func TestEveryResourceDefaultOutputIntegration(t *testing.T) {
 				}
 			} else if operation.Command == "list" || strings.HasPrefix(operation.Command, "list-") {
 				var response map[string]any
-				if err := json.Unmarshal(operation.Response, &response); err != nil {
-					t.Fatal(err)
-				}
+				_ = json.Unmarshal(operation.Response, &response)
 				records, paginated := response["records"].([]any)
 				if !paginated {
 					assertResourceJSON(t, out.Bytes(), operation.Response)

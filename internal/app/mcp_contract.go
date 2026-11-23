@@ -47,7 +47,7 @@ func mcpReadOperation(method string, op *openapi3.Operation) bool {
 		return true
 	case http.MethodPost:
 		switch op.OperationID {
-		case "queryApplicationRunLogs", "queryJobRunLogs", "queryDatabaseRunLogs":
+		case "queryApplicationRunLogs", "queryJobRunLogs", "queryDatabaseRunLogs", "queryCacheRunLogs":
 			return true
 		}
 	}

@@ -42,6 +42,9 @@ func TestCanonicalGeneratedResponses(t *testing.T) {
 				t.Fatal(err)
 			}
 			req.Header.Set("Authorization", "Bearer synthetic-contract")
+			for name, value := range op.Headers {
+				req.Header.Set(name, value)
+			}
 			if op.Body != nil {
 				req.Header.Set("Content-Type", "application/json")
 			}
@@ -206,6 +209,9 @@ func TestMockFixturesRemainStableAcrossHTTPServers(t *testing.T) {
 				t.Fatal(err)
 			}
 			req.Header.Set("Authorization", "Bearer synthetic-contract")
+			for name, value := range op.Headers {
+				req.Header.Set(name, value)
+			}
 			if op.Body != nil {
 				req.Header.Set("Content-Type", "application/json")
 			}

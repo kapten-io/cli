@@ -53,6 +53,9 @@ type Operation struct {
 	Ignored          bool
 	Args             []string
 	Query            map[string]string
+	// Headers holds the required header parameters, which the CLI takes as
+	// positional arguments in spec order, alongside required query ones.
+	Headers map[string]string
 	// PositionalQuery names the required query parameters, which the CLI
 	// takes as positional arguments after the path ones, in this order.
 	PositionalQuery []string
@@ -159,7 +162,7 @@ func Build(data []byte) (*Server, error) {
 			if nop == nil || op.OperationID == "" {
 				return nil, fmt.Errorf("unknown operation %s %s", method, path)
 			}
-			fixture := Operation{ID: op.OperationID, Method: method, Path: path, Groups: op.Tags, Query: map[string]string{}}
+			fixture := Operation{ID: op.OperationID, Method: method, Path: path, Groups: op.Tags, Query: map[string]string{}, Headers: map[string]string{}}
 			fixture.Ignored = extensionBool(item.Extensions["x-cli-ignore"]) || extensionBool(op.Extensions["x-cli-ignore"])
 			fixture.Command, _ = op.Extensions["x-cli-name"].(string)
 			if !fixture.Ignored && (fixture.Command == "" || len(op.Tags) == 0) {
@@ -198,10 +201,12 @@ func Build(data []byte) (*Server, error) {
 			// Generate path/query parameters from their canonical high-level schemas.
 			params := append(append([]*high.Parameter{}, nativeItem.Parameters...), nop.Parameters...)
 			values := map[string]string{}
-			requiredQuery := []string{}
+			// Required non-path parameters, in spec order: [in, name].
+			requiredOther := [][2]string{}
 			for _, p := range params {
-				if p.In != "path" && p.In != "query" {
-					if p.Required != nil && *p.Required {
+				required := p.Required != nil && *p.Required
+				if p.In != "path" && p.In != "query" && !(p.In == "header" && required) {
+					if required {
 						return nil, fmt.Errorf("unsupported required %s parameter %s", p.In, p.Name)
 					}
 					continue
@@ -222,12 +227,17 @@ func Build(data []byte) (*Server, error) {
 					}
 				}
 				text := fmt.Sprint(value)
-				if p.In == "path" {
+				switch p.In {
+				case "path":
 					values[p.Name] = text
-				} else {
+				case "header":
+					fixture.Headers[p.Name] = text
+					requiredOther = append(requiredOther, [2]string{p.In, p.Name})
+				default:
 					fixture.Query[p.Name] = text
-					if p.Required != nil && *p.Required {
-						requiredQuery = append(requiredQuery, p.Name)
+					if required {
+						requiredOther = append(requiredOther, [2]string{p.In, p.Name})
+						fixture.PositionalQuery = append(fixture.PositionalQuery, p.Name)
 					}
 				}
 			}
@@ -237,9 +247,12 @@ func Build(data []byte) (*Server, error) {
 					fixture.Args = append(fixture.Args, values[strings.Trim(part, "{}")])
 				}
 			}
-			for _, name := range requiredQuery {
-				fixture.Args = append(fixture.Args, fixture.Query[name])
-				fixture.PositionalQuery = append(fixture.PositionalQuery, name)
+			for _, param := range requiredOther {
+				if param[0] == "header" {
+					fixture.Args = append(fixture.Args, fixture.Headers[param[1]])
+				} else {
+					fixture.Args = append(fixture.Args, fixture.Query[param[1]])
+				}
 			}
 			if nop.RequestBody != nil && nop.RequestBody.Required != nil && *nop.RequestBody.Required {
 				media := nop.RequestBody.Content.GetOrZero("application/json")
