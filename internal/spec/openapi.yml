@@ -762,8 +762,8 @@ paths:
         default:
           $ref: '#/components/responses/error_response'
     post:
-      summary: Add a managed network to a cluster
-      description: 'Adds a network served by its own Gateway, whose Envoy Service Kapten creates with the given type, load balancer class and annotations. Use it to serve applications on a private network, such as a Tailscale tailnet (`loadBalancerClass: tailscale`) or a NetBird network (`CLUSTER_IP` with the `netbird.io/expose` annotation).'
+      summary: Add a network to a cluster
+      description: 'Adds a managed network, served by its own Gateway whose Envoy Service Kapten creates with the given type, load balancer class and annotations, or declares an external network ahead of its Gateway. Use it to serve applications on a private network, such as a Tailscale tailnet (`loadBalancerClass: tailscale`) or a NetBird network (`CLUSTER_IP` with the `netbird.io/expose` annotation).'
       operationId: createClusterNetwork
       x-cli-name: create-network
       tags:
@@ -789,8 +789,8 @@ paths:
       - $ref: '#/components/parameters/cluster_id'
       - $ref: '#/components/parameters/network_id'
     patch:
-      summary: Update a managed network
-      description: Replaces the Envoy Service settings of a managed network. The name never changes, since it is part of the network's hostnames.
+      summary: Update a network
+      description: Changes the description of a managed or external network, and replaces the Envoy Service settings of a managed network. The name never changes, since it is part of the network's hostnames.
       operationId: updateClusterNetwork
       x-cli-name: update-network
       tags:
@@ -801,7 +801,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/cluster_network_service'
+              $ref: '#/components/schemas/update_cluster_network'
       responses:
         '200':
           description: Network updated
@@ -812,8 +812,8 @@ paths:
         default:
           $ref: '#/components/responses/error_response'
     delete:
-      summary: Delete a managed network
-      description: Deletes a managed network. The public network cannot be deleted, and an external network leaves when its Gateway loses the `kapten.io/network` label.
+      summary: Delete a network
+      description: 'Deletes a managed or external network that no application port uses. The public network cannot be deleted. An external network whose Gateway still carries the `kapten.io/network` label comes back at the agent''s next report: remove the label first.'
       operationId: deleteClusterNetwork
       x-cli-name: delete-network
       tags:
@@ -4532,6 +4532,7 @@ components:
         - id
         - cluster_id
         - name
+        - description
         - kind
         - service_type
         - load_balancer_class
@@ -4543,6 +4544,8 @@ components:
         - reported_at
         - gateway_namespace
         - gateway_name
+        - ports
+        - hidden_port_count
         - created_at
       properties:
         id:
@@ -4552,6 +4555,9 @@ components:
         name:
           type: string
           description: The network's name, a DNS label that appears in its hostnames.
+        description:
+          type: string
+          description: Who can reach the network, in the customer's words. Empty when not given.
         kind:
           $ref: '#/components/schemas/cluster_network_kind'
         service_type:
@@ -4593,6 +4599,15 @@ components:
         created_at:
           type: string
           format: date-time
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/cluster_network_port'
+          description: The application ports served on the network, in the environments the caller can read.
+        hidden_port_count:
+          type: integer
+          minimum: 0
+          description: 'The ports served on the network in environments the caller cannot read: counted, not listed. They also keep the network from being deleted.'
     cluster_network_list:
       type: object
       required:
@@ -4635,11 +4650,10 @@ components:
           description: 'Annotations of the Service, such as `netbird.io/expose: "true"` or a cloud provider''s internal load balancer annotation.'
     cluster_network_service_type:
       type: string
-      description: 'The type of the Envoy Service: `LOAD_BALANCER` asks the cluster for a load balancer, the default one or the one named by `load_balancer_class`; `CLUSTER_IP` keeps the Service inside the cluster, for an operator that exposes it, such as NetBird''s.'
+      description: 'The type of the Envoy Service: `LOAD_BALANCER` asks the cluster for a load balancer, the default one or the one named by `load_balancer_class`; `CLUSTER_IP` keeps the Service inside the cluster, for an operator that exposes it, such as NetBird''s. A managed network created without it gets `LOAD_BALANCER`.'
       enum:
         - LOAD_BALANCER
         - CLUSTER_IP
-      default: LOAD_BALANCER
     create_cluster_network:
       allOf:
         - type: object
@@ -4651,6 +4665,15 @@ components:
               maxLength: 32
               pattern: ^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$
               description: The network's name, a DNS label that appears in its hostnames, such as `tailnet`. It never changes. `public` is reserved.
+            kind:
+              type: string
+              enum:
+                - MANAGED
+                - EXTERNAL
+              default: MANAGED
+              description: '`MANAGED` (the default) has Kapten run the network''s Gateway, with the given Envoy Service settings. `EXTERNAL` declares a Gateway the customer runs: the network waits until the agent reports a Gateway labelled `kapten.io/network` with its name, and takes no Service settings.'
+            description:
+              $ref: '#/components/schemas/cluster_network_description'
         - $ref: '#/components/schemas/cluster_network_service'
     error:
       type: object
@@ -9317,6 +9340,44 @@ components:
           maxLength: 253
         observability:
           $ref: '#/components/schemas/ClusterObservabilityInput'
+    cluster_network_port:
+      type: object
+      description: An application port served on a network.
+      required:
+        - application_id
+        - application_name
+        - environment_id
+        - environment_name
+        - project_id
+        - project_name
+        - port_name
+      properties:
+        application_id:
+          $ref: '#/components/schemas/uuid'
+        application_name:
+          type: string
+        environment_id:
+          $ref: '#/components/schemas/uuid'
+        environment_name:
+          type: string
+        project_id:
+          $ref: '#/components/schemas/uuid'
+        project_name:
+          type: string
+        port_name:
+          type: string
+    cluster_network_description:
+      type: string
+      maxLength: 200
+      description: Who can reach the network, in the customer's words, such as "Staff on the company VPN". Shown wherever someone picks the network for a port.
+    update_cluster_network:
+      allOf:
+        - type: object
+          properties:
+            description:
+              $ref: '#/components/schemas/cluster_network_description'
+        - $ref: '#/components/schemas/cluster_network_service'
+      description: 'An omitted description is kept. The Envoy Service settings are replaced, and apply to managed networks only: an external network takes a description alone.'
     create_container_registry_common:
       type: object
       required:
